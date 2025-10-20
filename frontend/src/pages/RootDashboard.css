@@ -1,11 +1,13 @@
+@import '../colors.css';
+
 .root-dashboard {
   min-height: 100vh;
-  background: #f9fafb;
+  background: var(--color-bg-light);
 }
 
 .dashboard-header {
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--nav-bg);
+  border-bottom: 2px solid var(--nav-border);
   padding: 1.5rem 2rem;
 }
 
@@ -20,17 +22,17 @@
 .header-content h1 {
   margin: 0;
   font-size: 1.875rem;
-  color: #111827;
+  color: var(--nav-text);
 }
 
 .header-content p {
   margin: 0.25rem 0 0;
-  color: #6b7280;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .logout-button {
   padding: 0.625rem 1.25rem;
-  background: #ef4444;
+  background: var(--vt-orange);
   color: white;
   border: none;
   border-radius: 6px;
@@ -40,12 +42,12 @@
 }
 
 .logout-button:hover {
-  background: #dc2626;
+  background: var(--vt-orange-dark);
 }
 
 .dashboard-tabs {
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--color-bg-white);
+  border-bottom: 1px solid var(--color-border-light);
   padding: 0 2rem;
   display: flex;
   gap: 0.5rem;
@@ -57,10 +59,10 @@
   padding: 1rem 1.5rem;
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   cursor: pointer;
   font-weight: 500;
-  color: #6b7280;
+  color: var(--color-text-secondary);
   transition: all 0.2s;
   display: flex;
   align-items: center;
@@ -68,17 +70,18 @@
 }
 
 .tab:hover {
-  color: #111827;
-  background: #f9fafb;
+  color: var(--vt-maroon);
+  background: var(--color-bg-light);
 }
 
 .tab.active {
-  color: #2563eb;
-  border-bottom-color: #2563eb;
+  color: var(--vt-maroon);
+  border-bottom-color: var(--vt-orange);
+  font-weight: 600;
 }
 
 .badge {
-  background: #ef4444;
+  background: var(--color-danger);
   color: white;
   padding: 0.125rem 0.5rem;
   border-radius: 12px;
@@ -95,7 +98,7 @@
 .loading {
   text-align: center;
   padding: 3rem;
-  color: #6b7280;
+  color: var(--color-text-light);
   font-size: 1.125rem;
 }
 
@@ -103,7 +106,7 @@
 .overview-section h2 {
   font-size: 1.5rem;
   margin-bottom: 1.5rem;
-  color: #111827;
+  color: var(--color-text-primary);
 }
 
 .stats-grid {
@@ -113,15 +116,15 @@
 }
 
 .stat-card {
-  background: white;
+  background: var(--color-bg-white);
   padding: 1.5rem;
   border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
   text-align: center;
 }
 
 .stat-card.highlight {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--vt-maroon);
   color: white;
 }
 
@@ -133,7 +136,7 @@
 
 .stat-card p {
   margin: 0;
-  color: #6b7280;
+  color: var(--color-text-light);
   font-weight: 500;
 }
 
@@ -143,9 +146,9 @@
 
 /* Tables */
 .table-container {
-  background: white;
+  background: var(--color-bg-white);
   border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
   margin-top: 1.5rem;
 }
@@ -156,24 +159,24 @@
 }
 
 .data-table thead {
-  background: #f9fafb;
+  background: var(--color-bg-primary);
 }
 
 .data-table th {
   text-align: left;
   padding: 1rem;
   font-weight: 600;
-  color: #374151;
-  border-bottom: 1px solid #e5e7eb;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .data-table td {
   padding: 1rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .data-table tbody tr:hover {
-  background: #f9fafb;
+  background: var(--color-bg-primary);
 }
 
 .action-buttons {
@@ -192,30 +195,30 @@
 }
 
 .btn-approve {
-  background: #10b981;
-  color: white;
+  background: var(--btn-success-bg);
+  color: var(--btn-success-text);
 }
 
 .btn-approve:hover {
-  background: #059669;
+  background: var(--btn-success-hover);
 }
 
 .btn-reject {
-  background: #ef4444;
-  color: white;
+  background: var(--btn-danger-bg);
+  color: var(--btn-danger-text);
 }
 
 .btn-reject:hover {
-  background: #dc2626;
+  background: var(--btn-danger-hover);
 }
 
 .btn-delete {
-  background: #f3f4f6;
-  color: #ef4444;
+  background: var(--color-beige);
+  color: var(--color-danger);
 }
 
 .btn-delete:hover {
-  background: #ef4444;
+  background: var(--color-danger);
   color: white;
 }
 
@@ -228,38 +231,38 @@
 }
 
 .role-badge.student {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--badge-student-bg);
+  color: var(--badge-student-text);
 }
 
 .role-badge.professor {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--badge-professor-bg);
+  color: var(--badge-professor-text);
 }
 
 .role-badge.root {
-  background: #f3e8ff;
-  color: #6b21a8;
+  background: var(--badge-admin-bg);
+  color: var(--badge-admin-text);
 }
 
 .status-badge.active {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--badge-active-bg);
+  color: var(--badge-active-text);
 }
 
 .status-badge.pending {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--badge-pending-bg);
+  color: var(--badge-pending-text);
 }
 
 .status-badge.approved {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--badge-approved-bg);
+  color: var(--badge-approved-text);
 }
 
 .status-badge.rejected {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--badge-rejected-bg);
+  color: var(--badge-rejected-text);
 }
 
 /* Courses Section */
@@ -272,14 +275,14 @@
 
 .section-header h2 {
   font-size: 1.5rem;
-  color: #111827;
+  color: var(--color-text-primary);
   margin: 0;
 }
 
 .btn-primary {
   padding: 0.75rem 1.5rem;
-  background: #2563eb;
-  color: white;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -288,13 +291,13 @@
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: var(--btn-primary-hover);
 }
 
 .btn-secondary {
   padding: 0.75rem 1.5rem;
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--color-beige);
+  color: var(--color-text-primary);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -303,7 +306,7 @@
 }
 
 .btn-secondary:hover {
-  background: #e5e7eb;
+  background: var(--color-beige-dark);
 }
 
 .courses-grid {
@@ -314,16 +317,16 @@
 }
 
 .course-card {
-  background: white;
+  background: var(--color-bg-white);
   padding: 1.5rem;
   border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .course-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
 }
 
 .course-header {
@@ -336,13 +339,13 @@
 .course-header h3 {
   margin: 0;
   font-size: 1.125rem;
-  color: #111827;
+  color: var(--color-text-primary);
   flex: 1;
 }
 
 .btn-delete-icon {
-  background: #fee2e2;
-  color: #ef4444;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
   border: none;
   width: 28px;
   height: 28px;
@@ -356,12 +359,12 @@
 }
 
 .btn-delete-icon:hover {
-  background: #ef4444;
+  background: var(--color-danger);
   color: white;
 }
 
 .course-description {
-  color: #6b7280;
+  color: var(--color-text-light);
   margin: 0 0 1rem;
   line-height: 1.5;
 }
@@ -369,13 +372,13 @@
 .course-info p {
   margin: 0.5rem 0;
   font-size: 0.875rem;
-  color: #4b5563;
+  color: var(--color-text-secondary);
 }
 
 .empty-message {
   text-align: center;
   padding: 3rem;
-  color: #9ca3af;
+  color: var(--color-text-muted);
   font-size: 1rem;
 }
 
@@ -394,10 +397,10 @@
 }
 
 .modal-content {
-  background: white;
+  background: var(--color-bg-white);
   padding: 2rem;
   border-radius: 12px;
-  box-shadow: 0 20px 25px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-xl);
   width: 90%;
   max-width: 500px;
 }
@@ -405,7 +408,7 @@
 .modal-content h3 {
   margin: 0 0 1.5rem;
   font-size: 1.5rem;
-  color: #111827;
+  color: var(--color-text-primary);
 }
 
 .form-group {
@@ -416,7 +419,7 @@
   display: block;
   margin-bottom: 0.5rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--color-text-primary);
 }
 
 .form-group input,
@@ -424,17 +427,20 @@
 .form-group select {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--input-border);
   border-radius: 6px;
   font-size: 1rem;
   transition: border-color 0.2s;
+  background-color: var(--input-bg);
+  color: var(--input-text);
 }
 
 .form-group input:focus,
 .form-group textarea:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: var(--input-border-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .modal-actions {

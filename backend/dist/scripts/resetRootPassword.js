@@ -1,0 +1,33 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const database_1 = require("../config/database");
+const resetRootPassword = async () => {
+    const client = await database_1.pool.connect();
+    try {
+        const newPassword = 'Nikvtpass@2025';
+        const saltRounds = 10;
+        const passwordHash = await bcryptjs_1.default.hash(newPassword, saltRounds);
+        const result = await client.query('UPDATE users SET password_hash = $1 WHERE email = $2 RETURNING id, email', [passwordHash, 'nikileshm@vt.edu']);
+        if (result.rows.length > 0) {
+            console.log('✓ Root password updated successfully!');
+            console.log('Email:', result.rows[0].email);
+            console.log('New password:', newPassword);
+        }
+        else {
+            console.log('✗ Root user not found');
+        }
+    }
+    catch (error) {
+        console.error('Error resetting password:', error);
+    }
+    finally {
+        client.release();
+        process.exit(0);
+    }
+};
+resetRootPassword();
+//# sourceMappingURL=resetRootPassword.js.map

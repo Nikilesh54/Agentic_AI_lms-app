@@ -239,30 +239,74 @@ router.put('/courses/:id', async (req, res) => {
 
 // Delete a course
 router.delete('/courses/:id', async (req, res) => {
+  const client = await pool.connect();
+
   try {
     const { id } = req.params;
 
-    const result = await pool.query(
+    await client.query('BEGIN');
+
+    // Check if course exists
+    const course = await client.query(
+      'SELECT id, title FROM courses WHERE id = $1',
+      [id]
+    );
+
+    if (course.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Course not found' });
+    }
+
+    // Delete related data first
+    // Delete announcements for this course
+    await client.query(
+      'DELETE FROM announcements WHERE course_id = $1',
+      [id]
+    );
+
+    // Delete assignments for this course
+    await client.query(
+      'DELETE FROM assignments WHERE course_id = $1',
+      [id]
+    );
+
+    // Delete enrollments for this course
+    await client.query(
+      'DELETE FROM enrollments WHERE course_id = $1',
+      [id]
+    );
+
+    // Delete course instructor assignments (has CASCADE, but being explicit)
+    await client.query(
+      'DELETE FROM course_instructors WHERE course_id = $1',
+      [id]
+    );
+
+    // Finally, delete the course
+    const result = await client.query(
       'DELETE FROM courses WHERE id = $1 RETURNING id, title',
       [id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Course not found' });
-    }
+    await client.query('COMMIT');
 
     res.json({
       message: 'Course deleted successfully',
       course: result.rows[0]
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error deleting course:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
 });
 
 // Delete a user
 router.delete('/users/:id', async (req, res) => {
+  const client = await pool.connect();
+
   try {
     const { id } = req.params;
 
@@ -274,22 +318,66 @@ router.delete('/users/:id', async (req, res) => {
       });
     }
 
-    const result = await pool.query(
+    await client.query('BEGIN');
+
+    // Check if user exists
+    const user = await client.query(
+      'SELECT id, full_name, email, role FROM users WHERE id = $1',
+      [id]
+    );
+
+    if (user.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // If user is a professor, handle course assignments
+    if (user.rows[0].role === 'professor') {
+      // Set instructor_id to NULL for courses taught by this professor
+      await client.query(
+        'UPDATE courses SET instructor_id = NULL WHERE instructor_id = $1',
+        [id]
+      );
+
+      // Delete from course_instructors (has ON DELETE CASCADE, but doing explicitly)
+      await client.query(
+        'DELETE FROM course_instructors WHERE user_id = $1',
+        [id]
+      );
+
+      // Delete announcements created by this professor
+      await client.query(
+        'DELETE FROM announcements WHERE author_id = $1',
+        [id]
+      );
+    }
+
+    // If user is a student, delete their enrollments
+    if (user.rows[0].role === 'student') {
+      await client.query(
+        'DELETE FROM enrollments WHERE user_id = $1',
+        [id]
+      );
+    }
+
+    // Delete the user
+    const result = await client.query(
       'DELETE FROM users WHERE id = $1 RETURNING id, full_name, email, role',
       [id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    await client.query('COMMIT');
 
     res.json({
       message: 'User deleted successfully',
       user: result.rows[0]
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error deleting user:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
 });
 

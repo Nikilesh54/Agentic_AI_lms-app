@@ -1,14 +1,16 @@
+@import '../colors.css';
+
 /* Course Page Styles */
 .course-page {
   min-height: 100vh;
-  background-color: #f8f9fa;
+  background-color: var(--color-bg-light);
 }
 
 .course-header {
-  background: white;
-  border-bottom: 1px solid #e1e5e9;
+  background: var(--color-bg-white);
+  border-bottom: 1px solid var(--color-border-light);
   padding: 20px 0;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
 }
 
 .header-content {
@@ -22,17 +24,17 @@
 
 .breadcrumb {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--color-text-light);
 }
 
 .breadcrumb a {
-  color: #667eea;
+  color: var(--vt-maroon);
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
 .breadcrumb a:hover {
-  color: #764ba2;
+  color: var(--vt-maroon-dark);
   text-decoration: underline;
 }
 
@@ -43,12 +45,12 @@
 }
 
 .user-info {
-  color: #666;
+  color: var(--color-text-light);
   font-size: 0.9rem;
 }
 
 .logout-button {
-  background-color: #dc3545;
+  background-color: var(--vt-orange);
   color: white;
   border: none;
   padding: 10px 20px;
@@ -60,7 +62,7 @@
 }
 
 .logout-button:hover {
-  background-color: #c82333;
+  background-color: var(--vt-orange-dark);
 }
 
 .course-main {
@@ -70,17 +72,17 @@
 }
 
 .course-container {
-  background: white;
+  background: var(--color-bg-white);
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
 .course-title-section {
   padding: 30px;
-  border-bottom: 1px solid #e1e5e9;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--vt-maroon);
+  color: var(--color-bg-white);
 }
 
 .course-title-section h1 {
@@ -98,8 +100,8 @@
 /* Course Tabs */
 .course-tabs {
   display: flex;
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #e1e5e9;
+  background-color: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .tab {
@@ -109,21 +111,21 @@
   background: none;
   font-size: 1rem;
   font-weight: 500;
-  color: #666;
+  color: var(--color-text-light);
   cursor: pointer;
   transition: all 0.2s ease;
   border-bottom: 3px solid transparent;
 }
 
 .tab:hover {
-  background-color: #e9ecef;
-  color: #333;
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 .tab.active {
-  color: #667eea;
-  background-color: white;
-  border-bottom-color: #667eea;
+  color: var(--color-primary);
+  background-color: var(--color-bg-white);
+  border-bottom-color: var(--color-primary);
 }
 
 /* Course Content */
@@ -135,7 +137,7 @@
 .course-content h2 {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #333;
+  color: var(--color-text-primary);
   margin-bottom: 20px;
 }
 
@@ -151,13 +153,13 @@
 }
 
 .course-info p {
-  color: #666;
+  color: var(--color-text-light);
   line-height: 1.6;
   margin-bottom: 20px;
 }
 
 .course-details {
-  background-color: #f8f9fa;
+  background-color: var(--color-bg-primary);
   padding: 20px;
   border-radius: 8px;
 }
@@ -172,13 +174,13 @@
 }
 
 .detail-item strong {
-  color: #333;
+  color: var(--color-text-primary);
 }
 
 .recent-activity h3 {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #333;
+  color: var(--color-text-primary);
   margin-bottom: 15px;
 }
 
@@ -193,13 +195,13 @@
   align-items: center;
   gap: 15px;
   padding: 15px;
-  background-color: #f8f9fa;
+  background-color: var(--color-bg-primary);
   border-radius: 8px;
 }
 
 .activity-type {
-  background-color: #667eea;
-  color: white;
+  background-color: var(--color-primary);
+  color: var(--btn-primary-text);
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 0.8rem;
@@ -209,12 +211,12 @@
 
 .activity-text {
   flex: 1;
-  color: #333;
+  color: var(--color-text-primary);
   font-size: 0.9rem;
 }
 
 .activity-date {
-  color: #666;
+  color: var(--color-text-light);
   font-size: 0.8rem;
 }
 
@@ -227,14 +229,14 @@
 
 .assignment-item {
   padding: 25px;
-  border: 1px solid #e1e5e9;
+  border: 1px solid var(--color-border-light);
   border-radius: 8px;
   transition: all 0.2s ease;
 }
 
 .assignment-item:hover {
-  border-color: #667eea;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
 }
 
 .assignment-header {
@@ -247,7 +249,7 @@
 .assignment-header h3 {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #333;
+  color: var(--color-text-primary);
   margin: 0;
 }
 
@@ -260,17 +262,17 @@
 }
 
 .status.pending {
-  background-color: #fff3cd;
-  color: #856404;
+  background-color: var(--badge-pending-bg);
+  color: var(--badge-pending-text);
 }
 
 .status.completed {
-  background-color: #d4edda;
-  color: #155724;
+  background-color: var(--badge-completed-bg);
+  color: var(--badge-completed-text);
 }
 
 .assignment-description {
-  color: #666;
+  color: var(--color-text-light);
   line-height: 1.5;
   margin-bottom: 15px;
 }
@@ -282,14 +284,14 @@
 }
 
 .due-date {
-  color: #dc3545;
+  color: var(--color-danger);
   font-weight: 500;
   font-size: 0.9rem;
 }
 
 .points {
-  background-color: #f8f9fa;
-  color: #666;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-light);
   padding: 6px 12px;
   border-radius: 6px;
   font-size: 0.9rem;
@@ -305,9 +307,9 @@
 
 .announcement-item {
   padding: 25px;
-  border: 1px solid #e1e5e9;
+  border: 1px solid var(--color-border-light);
   border-radius: 8px;
-  background-color: #f8f9fa;
+  background-color: var(--color-bg-primary);
 }
 
 .announcement-header {
@@ -320,23 +322,23 @@
 .announcement-header h3 {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #333;
+  color: var(--color-text-primary);
   margin: 0;
 }
 
 .announcement-date {
-  color: #666;
+  color: var(--color-text-light);
   font-size: 0.9rem;
 }
 
 .announcement-content {
-  color: #666;
+  color: var(--color-text-light);
   line-height: 1.6;
   margin-bottom: 15px;
 }
 
 .announcement-author {
-  color: #999;
+  color: var(--color-text-muted);
   font-size: 0.9rem;
   font-style: italic;
 }
@@ -350,14 +352,14 @@
 
 .module-item {
   padding: 25px;
-  border: 1px solid #e1e5e9;
+  border: 1px solid var(--color-border-light);
   border-radius: 8px;
   transition: all 0.2s ease;
 }
 
 .module-item:hover {
-  border-color: #667eea;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
 }
 
 .module-header {
@@ -370,18 +372,18 @@
 .module-header h3 {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #333;
+  color: var(--color-text-primary);
   margin: 0;
 }
 
 .module-progress {
-  color: #667eea;
+  color: var(--color-primary);
   font-size: 0.9rem;
   font-weight: 500;
 }
 
 .module-description {
-  color: #666;
+  color: var(--color-text-light);
   line-height: 1.5;
   margin-bottom: 15px;
 }
@@ -389,14 +391,14 @@
 .module-progress-bar {
   width: 100%;
   height: 8px;
-  background-color: #e1e5e9;
+  background-color: var(--color-border-light);
   border-radius: 4px;
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--vt-maroon);
   transition: width 0.3s ease;
   border-radius: 4px;
 }

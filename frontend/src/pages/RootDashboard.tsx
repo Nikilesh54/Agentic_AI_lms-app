@@ -228,6 +228,20 @@ const RootDashboard: React.FC = () => {
     }
   };
 
+  const handleDeleteProfessor = async (professorId: number) => {
+    if (!confirm('Are you sure you want to delete this professor? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await rootAPI.deleteProfessor(professorId);
+      showToast('Professor deleted successfully', 'success');
+      loadProfessors();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to delete professor', 'error');
+    }
+  };
+
   const openAssignCourseModal = async (professor: Professor) => {
     setSelectedProfessor(professor);
     setSelectedCourseId('');
@@ -422,13 +436,21 @@ const RootDashboard: React.FC = () => {
                           )}
                         </td>
                         <td>
-                          <button
-                            className="btn-primary"
-                            onClick={() => openAssignCourseModal(prof)}
-                            disabled={prof.status === 'pending' || prof.status === 'rejected'}
-                          >
-                            Assign Course
-                          </button>
+                          <div className="action-buttons">
+                            <button
+                              className="btn-primary"
+                              onClick={() => openAssignCourseModal(prof)}
+                              disabled={prof.status === 'pending' || prof.status === 'rejected'}
+                            >
+                              Assign Course
+                            </button>
+                            <button
+                              className="btn-delete"
+                              onClick={() => handleDeleteProfessor(prof.id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

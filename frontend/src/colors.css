@@ -1,0 +1,230 @@
+/**
+ * Virginia Tech Official Color Palette
+ * Based on Virginia Tech Brand Guidelines
+ * https://www.brand.vt.edu/
+ */
+
+:root {
+  /* ============================================
+     VIRGINIA TECH PRIMARY COLORS
+     ============================================ */
+
+  /* Chicago Maroon - VT Primary Brand Color */
+  --vt-maroon: #861F41;
+  --vt-maroon-dark: #6d1935;
+  --vt-maroon-darker: #5a1429;
+  --vt-maroon-light: #9d2d4f;
+
+  /* Burnt Orange - VT Secondary Brand Color */
+  --vt-orange: #E87722;
+  --vt-orange-dark: #cf6817;
+  --vt-orange-light: #f09348;
+
+  /* ============================================
+     NEUTRAL COLORS (VT Style)
+     ============================================ */
+
+  /* Backgrounds */
+  --color-bg-white: #FFFFFF;
+  --color-bg-light: #F5F5F5;
+  --color-bg-gray: #E8E8E8;
+
+  /* Text Colors */
+  --color-text-primary: #2B2B2B;
+  --color-text-secondary: #555555;
+  --color-text-light: #757575;
+  --color-text-white: #FFFFFF;
+
+  /* Borders */
+  --color-border: #CCCCCC;
+  --color-border-light: #E0E0E0;
+  --color-border-dark: #999999;
+
+  /* ============================================
+     SEMANTIC COLORS
+     ============================================ */
+
+  /* Success */
+  --color-success: #28A745;
+  --color-success-dark: #218838;
+  --color-success-light: #34ce57;
+  --color-success-bg: #d4edda;
+  --color-success-text: #155724;
+
+  /* Warning */
+  --color-warning: #E87722;
+  --color-warning-dark: #cf6817;
+  --color-warning-light: #f09348;
+  --color-warning-bg: #fff3cd;
+  --color-warning-text: #856404;
+
+  /* Error/Danger */
+  --color-danger: #DC3545;
+  --color-danger-dark: #c82333;
+  --color-danger-light: #e4606d;
+  --color-danger-bg: #f8d7da;
+  --color-danger-text: #721c24;
+
+  /* Info */
+  --color-info: #17A2B8;
+  --color-info-dark: #117a8b;
+  --color-info-light: #3ab4c7;
+  --color-info-bg: #d1ecf1;
+  --color-info-text: #0c5460;
+
+  /* ============================================
+     BUTTON COLORS (VT Style)
+     ============================================ */
+
+  /* Primary Button (Maroon) */
+  --btn-primary-bg: var(--vt-maroon);
+  --btn-primary-hover: var(--vt-maroon-dark);
+  --btn-primary-active: var(--vt-maroon-darker);
+  --btn-primary-text: var(--color-text-white);
+
+  /* Secondary Button (Orange) */
+  --btn-secondary-bg: var(--vt-orange);
+  --btn-secondary-hover: var(--vt-orange-dark);
+  --btn-secondary-text: var(--color-text-white);
+
+  /* Tertiary Button (Gray/Outline) */
+  --btn-tertiary-bg: var(--color-bg-white);
+  --btn-tertiary-border: var(--color-border);
+  --btn-tertiary-hover: var(--color-bg-light);
+  --btn-tertiary-text: var(--color-text-primary);
+
+  /* Success Button */
+  --btn-success-bg: var(--color-success);
+  --btn-success-hover: var(--color-success-dark);
+  --btn-success-text: var(--color-text-white);
+
+  /* Danger Button */
+  --btn-danger-bg: var(--color-danger);
+  --btn-danger-hover: var(--color-danger-dark);
+  --btn-danger-text: var(--color-text-white);
+
+  /* ============================================
+     NAVIGATION & HEADER (VT Style - Maroon)
+     ============================================ */
+
+  --nav-bg: var(--vt-maroon);
+  --nav-text: var(--color-text-white);
+  --nav-hover: var(--vt-maroon-dark);
+  --nav-active: var(--vt-orange);
+  --nav-border: var(--vt-maroon-dark);
+
+  /* ============================================
+     FORM INPUTS
+     ============================================ */
+
+  --input-bg: var(--color-bg-white);
+  --input-border: var(--color-border);
+  --input-border-focus: var(--vt-maroon);
+  --input-text: var(--color-text-primary);
+  --input-placeholder: var(--color-text-light);
+  --input-disabled-bg: var(--color-bg-gray);
+
+  /* ============================================
+     LINKS
+     ============================================ */
+
+  --link-color: var(--vt-maroon);
+  --link-hover: var(--vt-maroon-dark);
+  --link-visited: var(--vt-maroon-darker);
+  --link-active: var(--vt-orange);
+
+  /* ============================================
+     BADGES & STATUS INDICATORS
+     ============================================ */
+
+  /* Role Badges */
+  --badge-student-bg: #E3F2FD;
+  --badge-student-text: #1565C0;
+  --badge-student-border: #90CAF9;
+
+  --badge-professor-bg: #FFF3E0;
+  --badge-professor-text: #E65100;
+  --badge-professor-border: #FFB74D;
+
+  --badge-admin-bg: #F3E5F5;
+  --badge-admin-text: #6A1B9A;
+  --badge-admin-border: #BA68C8;
+
+  /* Status Badges */
+  --badge-active-bg: var(--color-success-bg);
+  --badge-active-text: var(--color-success-text);
+  --badge-active-border: var(--color-success-light);
+
+  --badge-pending-bg: var(--color-warning-bg);
+  --badge-pending-text: var(--color-warning-text);
+  --badge-pending-border: var(--vt-orange-light);
+
+  --badge-approved-bg: var(--color-success-bg);
+  --badge-approved-text: var(--color-success-text);
+  --badge-approved-border: var(--color-success-light);
+
+  --badge-rejected-bg: var(--color-danger-bg);
+  --badge-rejected-text: var(--color-danger-text);
+  --badge-rejected-border: var(--color-danger-light);
+
+  --badge-completed-bg: var(--color-success-bg);
+  --badge-completed-text: var(--color-success-text);
+  --badge-completed-border: var(--color-success);
+
+  /* ============================================
+     SHADOWS (Subtle, VT Style)
+     ============================================ */
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 4px 0 rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 4px 8px 0 rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 8px 16px 0 rgba(0, 0, 0, 0.15);
+
+  /* ============================================
+     FOCUS RING (Accessibility)
+     ============================================ */
+
+  --focus-ring: 0 0 0 3px rgba(134, 31, 65, 0.25);
+  --focus-ring-orange: 0 0 0 3px rgba(232, 119, 34, 0.25);
+
+  /* ============================================
+     CARD & PANEL STYLES
+     ============================================ */
+
+  --card-bg: var(--color-bg-white);
+  --card-border: var(--color-border-light);
+  --card-shadow: var(--shadow-md);
+
+  /* ============================================
+     TABLE STYLES
+     ============================================ */
+
+  --table-header-bg: var(--color-bg-light);
+  --table-header-text: var(--color-text-primary);
+  --table-row-hover: var(--color-bg-gray);
+  --table-border: var(--color-border-light);
+
+  /* ============================================
+     ACCENTS (Use Orange Sparingly)
+     ============================================ */
+
+  --accent-primary: var(--vt-orange);
+  --accent-secondary: var(--vt-maroon-light);
+  --accent-highlight: #FFF9E6;
+}
+
+/* ============================================
+   DARK MODE (Optional)
+   ============================================ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg-white: #1a1a1a;
+    --color-bg-light: #2b2b2b;
+    --color-bg-gray: #3a3a3a;
+    --color-text-primary: #e0e0e0;
+    --color-text-secondary: #b0b0b0;
+    --color-text-light: #909090;
+    --color-border: #404040;
+    --color-border-light: #353535;
+  }
+}

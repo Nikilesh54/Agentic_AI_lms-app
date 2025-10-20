@@ -56,6 +56,9 @@ export const rootAPI = {
 
   removeCourse: (professorId: number, courseId: number) =>
     apiClient.delete(`/root/professors/${professorId}/courses/${courseId}`),
+
+  deleteProfessor: (professorId: number) =>
+    apiClient.delete(`/root/users/${professorId}`),
 };
 
 // Professor API
