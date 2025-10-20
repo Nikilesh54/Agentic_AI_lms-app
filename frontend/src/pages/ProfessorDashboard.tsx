@@ -137,6 +137,20 @@ const ProfessorDashboard: React.FC = () => {
     );
   }
 
+  // Check if professor doesn't have a course assigned
+  if (!course) {
+    return (
+      <div className="pending-approval">
+        <div className="pending-card">
+          <h1>No Course Assigned</h1>
+          <p>You don't have any courses assigned yet.</p>
+          <p>Please contact the administrator to get a course assigned to your account.</p>
+          <button onClick={logout} className="logout-button">Logout</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="professor-dashboard">
       <header className="dashboard-header">

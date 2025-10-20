@@ -55,12 +55,13 @@ interface Stats {
 const RootDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'overview' | 'professors' | 'users' | 'courses'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'professors' | 'users' | 'courses'>('overview');
   const [loading, setLoading] = useState(false);
 
   // State
   const [stats, setStats] = useState<Stats | null>(null);
   const [pendingProfessors, setPendingProfessors] = useState<PendingProfessor[]>([]);
+  const [professors, setProfessors] = useState<Professor[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
 
@@ -68,9 +69,15 @@ const RootDashboard: React.FC = () => {
   const [showAddCourse, setShowAddCourse] = useState(false);
   const [newCourse, setNewCourse] = useState({ title: '', description: '' });
 
+  // Course assignment
+  const [showAssignCourse, setShowAssignCourse] = useState(false);
+  const [selectedProfessor, setSelectedProfessor] = useState<Professor | null>(null);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>('');
+
   useEffect(() => {
     if (activeTab === 'overview') loadStats();
-    if (activeTab === 'professors') loadPendingProfessors();
+    if (activeTab === 'pending') loadPendingProfessors();
+    if (activeTab === 'professors') loadProfessors();
     if (activeTab === 'users') loadUsers();
     if (activeTab === 'courses') loadCourses();
   }, [activeTab]);
@@ -179,6 +186,63 @@ const RootDashboard: React.FC = () => {
     }
   };
 
+  const loadProfessors = async () => {
+    try {
+      setLoading(true);
+      const response = await rootAPI.getProfessors();
+      setProfessors(response.data.professors);
+    } catch (error) {
+      showToast('Failed to load professors', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAssignCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProfessor || !selectedCourseId) return;
+
+    try {
+      await rootAPI.assignCourse(selectedProfessor.id, parseInt(selectedCourseId));
+      showToast('Course assigned successfully', 'success');
+      setShowAssignCourse(false);
+      setSelectedProfessor(null);
+      setSelectedCourseId('');
+      loadProfessors();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to assign course', 'error');
+    }
+  };
+
+  const handleRemoveCourse = async (professorId: number, courseId: number) => {
+    if (!confirm('Are you sure you want to remove this course from the professor?')) {
+      return;
+    }
+
+    try {
+      await rootAPI.removeCourse(professorId, courseId);
+      showToast('Course removed successfully', 'success');
+      loadProfessors();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to remove course', 'error');
+    }
+  };
+
+  const openAssignCourseModal = async (professor: Professor) => {
+    setSelectedProfessor(professor);
+    setSelectedCourseId('');
+    setShowAssignCourse(true);
+    // Load courses if not already loaded
+    if (courses.length === 0) {
+      try {
+        const response = await rootAPI.getCourses();
+        setCourses(response.data.courses);
+      } catch (error) {
+        showToast('Failed to load courses', 'error');
+      }
+    }
+  };
+
   return (
     <div className="root-dashboard">
       <header className="dashboard-header">
@@ -201,13 +265,19 @@ const RootDashboard: React.FC = () => {
           Overview
         </button>
         <button
-          className={`tab ${activeTab === 'professors' ? 'active' : ''}`}
-          onClick={() => setActiveTab('professors')}
+          className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
+          onClick={() => setActiveTab('pending')}
         >
           Pending Professors
           {stats && stats.pendingProfessors > 0 && (
             <span className="badge">{stats.pendingProfessors}</span>
           )}
+        </button>
+        <button
+          className={`tab ${activeTab === 'professors' ? 'active' : ''}`}
+          onClick={() => setActiveTab('professors')}
+        >
+          Manage Professors
         </button>
         <button
           className={`tab ${activeTab === 'users' ? 'active' : ''}`}
@@ -256,7 +326,7 @@ const RootDashboard: React.FC = () => {
         )}
 
         {/* Pending Professors Tab */}
-        {activeTab === 'professors' && (
+        {activeTab === 'pending' && (
           <div className="professors-section">
             <h2>Pending Professor Approvals</h2>
             {pendingProfessors.length === 0 ? (
@@ -268,7 +338,6 @@ const RootDashboard: React.FC = () => {
                     <tr>
                       <th>Name</th>
                       <th>Email</th>
-                      <th>Requested Course</th>
                       <th>Applied On</th>
                       <th>Actions</th>
                     </tr>
@@ -278,7 +347,6 @@ const RootDashboard: React.FC = () => {
                       <tr key={prof.id}>
                         <td>{prof.full_name}</td>
                         <td>{prof.email}</td>
-                        <td>{prof.course_title}</td>
                         <td>{new Date(prof.created_at).toLocaleDateString()}</td>
                         <td>
                           <div className="action-buttons">
@@ -300,6 +368,107 @@ const RootDashboard: React.FC = () => {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Manage Professors Tab */}
+        {activeTab === 'professors' && (
+          <div className="professors-section">
+            <h2>Manage Professors</h2>
+            {professors.length === 0 ? (
+              <p className="empty-message">No professors found</p>
+            ) : (
+              <div className="table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Status</th>
+                      <th>Assigned Courses</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {professors.map((prof) => (
+                      <tr key={prof.id}>
+                        <td>{prof.full_name}</td>
+                        <td>{prof.email}</td>
+                        <td>
+                          <span className={`status-badge ${prof.status}`}>
+                            {prof.status}
+                          </span>
+                        </td>
+                        <td>
+                          {prof.assigned_courses && prof.assigned_courses.length > 0 ? (
+                            <div className="assigned-courses">
+                              {prof.assigned_courses.map((course) => (
+                                <div key={course.course_id} className="course-tag">
+                                  {course.course_title}
+                                  <button
+                                    className="remove-course-btn"
+                                    onClick={() => handleRemoveCourse(prof.id, course.course_id)}
+                                    title="Remove course"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted">No courses assigned</span>
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            className="btn-primary"
+                            onClick={() => openAssignCourseModal(prof)}
+                            disabled={prof.status === 'pending' || prof.status === 'rejected'}
+                          >
+                            Assign Course
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {showAssignCourse && selectedProfessor && (
+              <div className="modal-overlay" onClick={() => setShowAssignCourse(false)}>
+                <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                  <h3>Assign Course to {selectedProfessor.full_name}</h3>
+                  <form onSubmit={handleAssignCourse}>
+                    <div className="form-group">
+                      <label>Select Course</label>
+                      <select
+                        value={selectedCourseId}
+                        onChange={(e) => setSelectedCourseId(e.target.value)}
+                        required
+                      >
+                        <option value="">Choose a course...</option>
+                        {courses
+                          .filter(c => !c.instructor_name) // Only show unassigned courses
+                          .map((course) => (
+                            <option key={course.id} value={course.id}>
+                              {course.title}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <div className="modal-actions">
+                      <button type="button" onClick={() => setShowAssignCourse(false)} className="btn-secondary">
+                        Cancel
+                      </button>
+                      <button type="submit" className="btn-primary">
+                        Assign Course
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </div>
             )}
           </div>

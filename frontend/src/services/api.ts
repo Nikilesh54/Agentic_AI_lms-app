@@ -47,6 +47,15 @@ export const rootAPI = {
 
   getStats: () =>
     apiClient.get('/root/stats'),
+
+  getProfessors: () =>
+    apiClient.get('/root/professors'),
+
+  assignCourse: (professorId: number, courseId: number) =>
+    apiClient.post(`/root/professors/${professorId}/courses`, { courseId }),
+
+  removeCourse: (professorId: number, courseId: number) =>
+    apiClient.delete(`/root/professors/${professorId}/courses/${courseId}`),
 };
 
 // Professor API
