@@ -1,0 +1,282 @@
+@import '../colors.css';
+
+.assignment-submission-page {
+  min-height: 100vh;
+  background: var(--color-bg-light);
+}
+
+.page-header {
+  background: var(--nav-bg);
+  border-bottom: 2px solid var(--nav-border);
+  padding: 1.5rem 2rem;
+}
+
+.header-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.breadcrumb a {
+  color: var(--vt-orange);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.user-info {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.logout-button {
+  padding: 0.625rem 1.25rem;
+  background: var(--vt-orange);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.logout-button:hover {
+  background: var(--vt-orange-dark);
+}
+
+.page-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.assignment-container {
+  background: white;
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.assignment-header-section {
+  background: var(--vt-maroon);
+  color: white;
+  padding: 2rem;
+}
+
+.assignment-header-section h1 {
+  margin: 0 0 1rem;
+  font-size: 2rem;
+}
+
+.due-date {
+  color: var(--vt-orange);
+  font-weight: 500;
+  margin: 0.5rem 0;
+}
+
+.points {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  display: inline-block;
+  margin-top: 0.5rem;
+}
+
+.assignment-section {
+  padding: 2rem;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.assignment-section:last-child {
+  border-bottom: none;
+}
+
+.assignment-section h2 {
+  margin: 0 0 1rem;
+  color: var(--color-text-primary);
+}
+
+.question-section {
+  background: var(--color-bg-primary);
+}
+
+.question-text {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border-left: 4px solid var(--vt-maroon);
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.file-item {
+  background: var(--color-bg-primary);
+  padding: 1rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.file-icon {
+  font-size: 1.5rem;
+}
+
+.file-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.file-size {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+
+.grade-section {
+  background: var(--color-success-light);
+}
+
+.grade-display {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.grade-value {
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: var(--vt-maroon);
+}
+
+.feedback h3 {
+  margin: 1rem 0 0.5rem;
+  color: var(--color-text-primary);
+}
+
+.feedback p {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+.existing-submission {
+  background: var(--color-bg-primary);
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.submission-info {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.submission-text-display h3,
+.submitted-files h3 {
+  margin: 1.5rem 0 0.75rem;
+  font-size: 1.125rem;
+  color: var(--color-text-primary);
+}
+
+.submission-text-display p {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.resubmit-info {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--color-warning-light);
+  border-left: 4px solid var(--vt-orange);
+  border-radius: 4px;
+}
+
+.resubmit-info p {
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+.submission-form {
+  max-width: 800px;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.form-group textarea,
+.form-group input[type="file"] {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.form-group textarea {
+  resize: vertical;
+}
+
+.selected-files {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  background: var(--color-bg-primary);
+  border-radius: 6px;
+}
+
+.selected-files p {
+  margin: 0 0 0.5rem;
+  font-weight: 500;
+}
+
+.selected-files ul {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.selected-files li {
+  margin: 0.25rem 0;
+  color: var(--color-text-secondary);
+}
+
+.loading,
+.error {
+  text-align: center;
+  padding: 4rem 2rem;
+  font-size: 1.25rem;
+  color: var(--color-text-secondary);
+}
+
+.error {
+  color: var(--color-danger);
+}
