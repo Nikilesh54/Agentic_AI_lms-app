@@ -292,15 +292,6 @@ npm install
 npm run dev
 ```
 
-The frontend will be running on `http://localhost:5173`
-
-### First-Time Setup
-
-1. Access the application at `http://localhost:5173`
-2. Log in with root credentials:
-   - Email: `root@lms.com`
-   - Password: `Root@123`
-3. Create courses, approve professors, and manage the system
 
 ---
 
@@ -367,8 +358,7 @@ All endpoints require Student role and active status.
 
 ### Root Administrator
 - **Access**: Full system access
-- **Initial Account**: Auto-seeded (`root@lms.com` / `Root@123`)
-- **Capabilities**:
+\- **Capabilities**:
   - Manage all users (view, delete)
   - Approve/reject professor registrations
   - Create, update, delete courses
@@ -429,88 +419,7 @@ npm run build
 npm run preview
 ```
 
-### Environment Variables
-
-Required in `backend/.env`:
-```env
-PORT=5000                    # Backend server port
-DB_HOST=localhost            # PostgreSQL host
-DB_PORT=5432                 # PostgreSQL port
-DB_NAME=lms_db               # Database name
-DB_USER=postgres             # Database user
-DB_PASSWORD=your_password    # Database password
-JWT_SECRET=your-secret-key   # JWT signing secret (change in production!)
-```
-
-### Database Migration & Seeding
-
-The application uses automatic migration:
-- Tables are created on first backend startup
-- Root user is automatically seeded
-- No manual SQL execution needed
-
-To reset root password:
-```bash
-cd backend
-ts-node src/scripts/resetRootPassword.ts
-```
-
----
-
-## Key Features Implemented
-
-### Transaction-Safe Delete Operations
-- **User Deletion**: Automatically removes enrollments, announcements, and course assignments
-- **Course Deletion**: Cascades to delete assignments, announcements, enrollments, and instructor assignments
-- **Data Integrity**: All deletes use PostgreSQL transactions to ensure consistency
-
-### Authentication & Authorization
-- **JWT Tokens**: 7-day expiry with user ID, email, and role embedded
-- **Password Security**: bcrypt hashing with 10 salt rounds
-- **Role Middleware**: Separate middleware for root, professor, and student routes
-- **Status Checks**: Professors must be approved, students must be active
-
-### Frontend State Management
-- **AuthContext**: Global authentication state using React Context
-- **Protected Routes**: Automatic redirection based on authentication status
-- **Role-Based Dashboards**: Different UIs for root, professor, and student
-- **Toast Notifications**: User feedback for all operations
-
----
-
-## Future Enhancements
-
-- [ ] File upload system for assignment submissions
-- [ ] Grade tracking and gradebook functionality
-- [ ] Real-time notifications using WebSockets
-- [ ] Email notifications for announcements
-- [ ] Discussion forums per course
-- [ ] Calendar view for assignments and due dates
-- [ ] Student progress tracking and analytics
-- [ ] Multi-course support for professors
-- [ ] Canvas LMS API integration
-- [ ] Mobile responsive improvements
-- [ ] Dark mode theme
-- [ ] Export data to CSV/PDF
-
----
-
-## License
-
-This project is developed for educational purposes.
-
----
-
-## Default Credentials
-
-**Root Administrator**:
-- Email: `root@lms.com`
-- Password: `Root@123`
-
-**Note**: Change the root password immediately after first login in production environments.
-
----
-
 ## Support
 
-For issues or questions, please open an issue in the repository.
+If you encounter any issues or have questions, feel free to [open an issue](https://github.com/Nikilesh54/Agentic_AI_lms-app/issues) in this repository or contact me via email at [nikileshm@vt.edu](mailto:nikileshm@vt.edu).
+
