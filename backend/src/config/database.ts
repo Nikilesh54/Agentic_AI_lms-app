@@ -91,12 +91,26 @@ const createTables = async () => {
         id SERIAL PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
         description TEXT,
+        question_text TEXT,
         course_id INTEGER REFERENCES courses(id),
         due_date TIMESTAMP,
         points INTEGER DEFAULT 100,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    // Add question_text column if it doesn't exist (for existing databases)
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'assignments' AND column_name = 'question_text'
+        ) THEN
+          ALTER TABLE assignments ADD COLUMN question_text TEXT;
+        END IF;
+      END $$;
     `);
 
     // Announcements table
@@ -120,6 +134,62 @@ const createTables = async () => {
         course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
         assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id)
+      )
+    `);
+
+    // Course Materials table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS course_materials (
+        id SERIAL PRIMARY KEY,
+        course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        file_name VARCHAR(500) NOT NULL,
+        file_path VARCHAR(1000) NOT NULL,
+        file_size BIGINT,
+        file_type VARCHAR(100),
+        uploaded_by INTEGER NOT NULL REFERENCES users(id),
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Assignment Files table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS assignment_files (
+        id SERIAL PRIMARY KEY,
+        assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+        file_name VARCHAR(500) NOT NULL,
+        file_path VARCHAR(1000) NOT NULL,
+        file_size BIGINT,
+        file_type VARCHAR(100),
+        uploaded_by INTEGER NOT NULL REFERENCES users(id),
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Assignment Submissions table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS assignment_submissions (
+        id SERIAL PRIMARY KEY,
+        assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+        student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        submission_text TEXT,
+        grade INTEGER,
+        feedback TEXT,
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        graded_at TIMESTAMP,
+        UNIQUE(assignment_id, student_id)
+      )
+    `);
+
+    // Submission Files table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS submission_files (
+        id SERIAL PRIMARY KEY,
+        submission_id INTEGER NOT NULL REFERENCES assignment_submissions(id) ON DELETE CASCADE,
+        file_name VARCHAR(500) NOT NULL,
+        file_path VARCHAR(1000) NOT NULL,
+        file_size BIGINT,
+        file_type VARCHAR(100),
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -162,6 +232,31 @@ const createTables = async () => {
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_courses_instructor_id
       ON courses(instructor_id)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_course_materials_course_id
+      ON course_materials(course_id)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_assignment_files_assignment_id
+      ON assignment_files(assignment_id)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_assignment_submissions_assignment_id
+      ON assignment_submissions(assignment_id)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_assignment_submissions_student_id
+      ON assignment_submissions(student_id)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_submission_files_submission_id
+      ON submission_files(submission_id)
     `);
 
     console.log('Database tables created successfully');

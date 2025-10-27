@@ -55,7 +55,7 @@ interface Stats {
 const RootDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'professors' | 'users' | 'courses'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'professors' | 'users' | 'courses' | 'files'>('overview');
   const [loading, setLoading] = useState(false);
 
   // State
@@ -64,6 +64,9 @@ const RootDashboard: React.FC = () => {
   const [professors, setProfessors] = useState<Professor[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [fileStats, setFileStats] = useState<any>(null);
 
   // New course form
   const [showAddCourse, setShowAddCourse] = useState(false);
@@ -80,6 +83,7 @@ const RootDashboard: React.FC = () => {
     if (activeTab === 'professors') loadProfessors();
     if (activeTab === 'users') loadUsers();
     if (activeTab === 'courses') loadCourses();
+    if (activeTab === 'files') loadFiles();
   }, [activeTab]);
 
   const loadStats = async () => {
@@ -139,7 +143,7 @@ const RootDashboard: React.FC = () => {
       await rootAPI.updateProfessorStatus(professorId, status);
       showToast(`Professor ${status} successfully`, 'success');
       loadPendingProfessors();
-      if (activeTab === 'overview') loadStats();
+      loadStats(); // Always refresh stats to update the badge count
     } catch (error: any) {
       showToast(error.response?.data?.error || `Failed to ${status} professor`, 'error');
     }
@@ -257,6 +261,40 @@ const RootDashboard: React.FC = () => {
     }
   };
 
+  const loadFiles = async () => {
+    try {
+      setLoading(true);
+      const [materialsRes, submissionsRes, statsRes] = await Promise.all([
+        rootAPI.getAllMaterials(),
+        rootAPI.getAllSubmissions(),
+        rootAPI.getFileStats()
+      ]);
+
+      setMaterials(materialsRes.data.materials || []);
+      setSubmissions(submissionsRes.data.submissions || []);
+      setFileStats(statsRes.data.stats);
+    } catch (error) {
+      showToast('Failed to load file data', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  };
+
+  const handleDownloadFile = async (type: 'material' | 'submission' | 'assignment', fileId: number) => {
+    try {
+      const response = await rootAPI.downloadFile(type, fileId);
+      window.open(response.data.url, '_blank');
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to download file', 'error');
+    }
+  };
+
   return (
     <div className="root-dashboard">
       <header className="dashboard-header">
@@ -304,6 +342,12 @@ const RootDashboard: React.FC = () => {
           onClick={() => setActiveTab('courses')}
         >
           Courses
+        </button>
+        <button
+          className={`tab ${activeTab === 'files' ? 'active' : ''}`}
+          onClick={() => setActiveTab('files')}
+        >
+          Files
         </button>
       </div>
 
@@ -625,6 +669,125 @@ const RootDashboard: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Files Tab */}
+        {activeTab === 'files' && (
+          <div className="files-section">
+            <h2>File Management & Monitoring</h2>
+
+            {fileStats && (
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <h3>{fileStats.courseMaterials.count}</h3>
+                  <p>Course Materials</p>
+                  <small>{formatFileSize(fileStats.courseMaterials.totalSize)}</small>
+                </div>
+                <div className="stat-card">
+                  <h3>{fileStats.submissions.count}</h3>
+                  <p>Submissions</p>
+                </div>
+                <div className="stat-card">
+                  <h3>{fileStats.submissionFiles.count}</h3>
+                  <p>Submission Files</p>
+                  <small>{formatFileSize(fileStats.submissionFiles.totalSize)}</small>
+                </div>
+                <div className="stat-card highlight">
+                  <h3>{formatFileSize(fileStats.courseMaterials.totalSize + fileStats.submissionFiles.totalSize)}</h3>
+                  <p>Total Storage Used</p>
+                </div>
+              </div>
+            )}
+
+            <div className="files-subsection">
+              <h3>Course Materials</h3>
+              {materials.length === 0 ? (
+                <p className="empty-message">No course materials uploaded yet</p>
+              ) : (
+                <div className="table-container">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>File Name</th>
+                        <th>Course</th>
+                        <th>Uploaded By</th>
+                        <th>Size</th>
+                        <th>Date</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {materials.map((material) => (
+                        <tr key={material.id}>
+                          <td>{material.file_name}</td>
+                          <td>{material.course_title}</td>
+                          <td>{material.uploader_name}</td>
+                          <td>{formatFileSize(material.file_size)}</td>
+                          <td>{new Date(material.uploaded_at).toLocaleDateString()}</td>
+                          <td>
+                            <button
+                              className="btn-secondary btn-sm"
+                              onClick={() => handleDownloadFile('material', material.id)}
+                            >
+                              Download
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="files-subsection">
+              <h3>Assignment Submissions</h3>
+              {submissions.length === 0 ? (
+                <p className="empty-message">No submissions yet</p>
+              ) : (
+                <div className="table-container">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Student</th>
+                        <th>Assignment</th>
+                        <th>Course</th>
+                        <th>Files</th>
+                        <th>Grade</th>
+                        <th>Submitted</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {submissions.map((submission) => (
+                        <tr key={submission.id}>
+                          <td>{submission.student_name}</td>
+                          <td>{submission.assignment_title}</td>
+                          <td>{submission.course_title}</td>
+                          <td>
+                            {submission.files && submission.files.length > 0 ? (
+                              <span className="file-count">
+                                {submission.files.length} file(s)
+                              </span>
+                            ) : (
+                              <span className="text-muted">No files</span>
+                            )}
+                          </td>
+                          <td>
+                            {submission.grade !== null ? (
+                              <span className="grade-badge">{submission.grade}</span>
+                            ) : (
+                              <span className="text-muted">Not graded</span>
+                            )}
+                          </td>
+                          <td>{new Date(submission.submitted_at).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>

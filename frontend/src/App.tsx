@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Courses from './pages/Courses';
 import CoursePage from './pages/CoursePage';
+import AssignmentSubmission from './pages/AssignmentSubmission';
 import ProtectedRoute from './components/ProtectedRoute';
 import RoleBasedDashboard from './components/RoleBasedDashboard';
 import './App.css';
@@ -39,6 +40,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <CoursePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/assignments/:assignmentId"
+                element={
+                  <ProtectedRoute>
+                    <AssignmentSubmission />
                   </ProtectedRoute>
                 }
               />

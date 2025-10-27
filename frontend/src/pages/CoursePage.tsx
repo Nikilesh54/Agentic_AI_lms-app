@@ -1,89 +1,85 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../components/Toast';
+import { studentAPI } from '../services/api';
 import './CoursePage.css';
 
 const CoursePage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { user, logout } = useAuth();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('overview');
+  const [loading, setLoading] = useState(false);
 
-  // Mock data for demonstration
-  const course = {
-    id: parseInt(id || '1'),
-    title: 'Web Development',
-    description: 'Learn modern web development with React, Node.js, and databases.',
-    instructor: 'Dr. Smith',
-    progress: 75
+  const [course, setCourse] = useState<any>(null);
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (id) {
+      loadCourseData();
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (id && activeTab === 'materials') {
+      loadMaterials();
+    }
+  }, [activeTab, id]);
+
+  const loadCourseData = async () => {
+    try {
+      setLoading(true);
+      const courseId = parseInt(id!);
+
+      const [courseRes, assignmentsRes, announcementsRes] = await Promise.all([
+        studentAPI.getCourseDetails(courseId),
+        studentAPI.getCourseAssignments(courseId),
+        studentAPI.getCourseAnnouncements(courseId)
+      ]);
+
+      setCourse(courseRes.data.course);
+      setAssignments(assignmentsRes.data.assignments || []);
+      setAnnouncements(announcementsRes.data.announcements || []);
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to load course data', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const assignments = [
-    {
-      id: 1,
-      title: 'React Components Assignment',
-      description: 'Create reusable React components for a todo application.',
-      dueDate: '2024-01-15',
-      points: 100,
-      status: 'pending'
-    },
-    {
-      id: 2,
-      title: 'API Integration Project',
-      description: 'Build a RESTful API using Node.js and Express.',
-      dueDate: '2024-01-22',
-      points: 150,
-      status: 'pending'
-    },
-    {
-      id: 3,
-      title: 'Database Design',
-      description: 'Design and implement a database schema for an e-commerce site.',
-      dueDate: '2024-01-25',
-      points: 120,
-      status: 'completed'
+  const loadMaterials = async () => {
+    try {
+      setLoading(true);
+      const response = await studentAPI.getCourseMaterials(parseInt(id!));
+      setMaterials(response.data.materials || []);
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to load course materials', 'error');
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
-  const announcements = [
-    {
-      id: 1,
-      title: 'Assignment 1 Due Date Extended',
-      content: 'The due date for Assignment 1 has been extended to January 15th. Please submit your work by 11:59 PM.',
-      author: 'Dr. Smith',
-      date: '2024-01-10'
-    },
-    {
-      id: 2,
-      title: 'Office Hours Update',
-      content: 'Office hours for this week will be held on Tuesday and Thursday from 2-4 PM.',
-      author: 'Dr. Smith',
-      date: '2024-01-08'
+  const handleDownloadMaterial = async (materialId: number) => {
+    try {
+      const response = await studentAPI.downloadMaterial(materialId);
+      window.open(response.data.url, '_blank');
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to download material', 'error');
     }
-  ];
+  };
 
-  const modules = [
-    {
-      id: 1,
-      title: 'Introduction to React',
-      description: 'Learn the basics of React components and JSX.',
-      lessons: 5,
-      completed: 5
-    },
-    {
-      id: 2,
-      title: 'State Management',
-      description: 'Understanding React state and props.',
-      lessons: 4,
-      completed: 3
-    },
-    {
-      id: 3,
-      title: 'API Integration',
-      description: 'Connecting React apps to backend APIs.',
-      lessons: 6,
-      completed: 1
-    }
-  ];
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  };
+
+  if (!course) {
+    return <div className="loading">Loading...</div>;
+  }
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -125,23 +121,37 @@ const CoursePage: React.FC = () => {
         return (
           <div className="assignments-content">
             <h2>Assignments</h2>
-            <div className="assignments-list">
-              {assignments.map((assignment) => (
-                <div key={assignment.id} className="assignment-item">
-                  <div className="assignment-header">
-                    <h3>{assignment.title}</h3>
-                    <span className={`status ${assignment.status}`}>
-                      {assignment.status}
-                    </span>
-                  </div>
-                  <p className="assignment-description">{assignment.description}</p>
-                  <div className="assignment-details">
-                    <span className="due-date">Due: {assignment.dueDate}</span>
-                    <span className="points">{assignment.points} points</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {assignments.length === 0 ? (
+              <p className="empty-message">No assignments available yet</p>
+            ) : (
+              <div className="assignments-list">
+                {assignments.map((assignment) => (
+                  <Link
+                    key={assignment.id}
+                    to={`/assignments/${assignment.id}`}
+                    className="assignment-item-link"
+                  >
+                    <div className="assignment-item">
+                      <div className="assignment-header">
+                        <h3>{assignment.title}</h3>
+                        {assignment.due_date && (
+                          <span className="due-date">
+                            Due: {new Date(assignment.due_date).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                      {assignment.description && (
+                        <p className="assignment-description">{assignment.description}</p>
+                      )}
+                      <div className="assignment-footer">
+                        <span className="points">{assignment.points} points</span>
+                        <span className="view-button">View Assignment →</span>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         );
       
@@ -166,32 +176,41 @@ const CoursePage: React.FC = () => {
           </div>
         );
       
-      case 'modules':
+      case 'materials':
         return (
-          <div className="modules-content">
-            <h2>Course Modules</h2>
-            <div className="modules-list">
-              {modules.map((module) => (
-                <div key={module.id} className="module-item">
-                  <div className="module-header">
-                    <h3>{module.title}</h3>
-                    <span className="module-progress">
-                      {module.completed}/{module.lessons} lessons
-                    </span>
+          <div className="materials-content">
+            <h2>Course Materials</h2>
+            {loading ? (
+              <p>Loading materials...</p>
+            ) : materials.length === 0 ? (
+              <p className="empty-message">No course materials available yet</p>
+            ) : (
+              <div className="materials-list">
+                {materials.map((material: any) => (
+                  <div key={material.id} className="material-card">
+                    <div className="material-icon">📄</div>
+                    <div className="material-info">
+                      <h3>{material.file_name}</h3>
+                      <p className="material-meta">
+                        {formatFileSize(material.file_size)} •
+                        Uploaded {new Date(material.uploaded_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="material-actions">
+                      <button
+                        className="btn-primary"
+                        onClick={() => handleDownloadMaterial(material.id)}
+                      >
+                        Download
+                      </button>
+                    </div>
                   </div>
-                  <p className="module-description">{module.description}</p>
-                  <div className="module-progress-bar">
-                    <div 
-                      className="progress-fill" 
-                      style={{ width: `${(module.completed / module.lessons) * 100}%` }}
-                    ></div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         );
-      
+
       default:
         return null;
     }
@@ -241,11 +260,11 @@ const CoursePage: React.FC = () => {
             >
               Announcements
             </button>
-            <button 
-              className={`tab ${activeTab === 'modules' ? 'active' : ''}`}
-              onClick={() => setActiveTab('modules')}
+            <button
+              className={`tab ${activeTab === 'materials' ? 'active' : ''}`}
+              onClick={() => setActiveTab('materials')}
             >
-              Modules
+              Materials
             </button>
           </div>
 

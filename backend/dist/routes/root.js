@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const database_1 = require("../config/database");
 const auth_1 = require("../middleware/auth");
+const storage_1 = require("../config/storage");
 const router = express_1.default.Router();
 // Apply authentication and authorization to all root routes
 router.use(auth_1.authenticate);
@@ -443,6 +444,181 @@ router.delete('/professors/:professorId/courses/:courseId', async (req, res) => 
     }
     finally {
         client.release();
+    }
+});
+// ========== FILE MANAGEMENT ENDPOINTS ==========
+// Get all course materials across all courses
+router.get('/files/materials', async (req, res) => {
+    try {
+        const { courseId, professorId } = req.query;
+        let query = `
+      SELECT cm.*,
+             c.title as course_title, c.id as course_id,
+             u.full_name as uploader_name, u.email as uploader_email
+      FROM course_materials cm
+      JOIN courses c ON cm.course_id = c.id
+      JOIN users u ON cm.uploaded_by = u.id
+      WHERE 1=1
+    `;
+        const params = [];
+        let paramCount = 1;
+        if (courseId) {
+            query += ` AND cm.course_id = $${paramCount}`;
+            params.push(courseId);
+            paramCount++;
+        }
+        if (professorId) {
+            query += ` AND cm.uploaded_by = $${paramCount}`;
+            params.push(professorId);
+            paramCount++;
+        }
+        query += ' ORDER BY cm.uploaded_at DESC';
+        const result = await database_1.pool.query(query, params);
+        res.json({
+            message: 'Course materials retrieved successfully',
+            materials: result.rows
+        });
+    }
+    catch (error) {
+        console.error('Error fetching course materials:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// Get all assignment submissions across all courses
+router.get('/files/submissions', async (req, res) => {
+    try {
+        const { courseId, studentId, assignmentId } = req.query;
+        let query = `
+      SELECT asub.*,
+             a.title as assignment_title, a.id as assignment_id,
+             c.title as course_title, c.id as course_id,
+             u.full_name as student_name, u.email as student_email,
+             json_agg(
+               json_build_object(
+                 'id', sf.id,
+                 'file_name', sf.file_name,
+                 'file_path', sf.file_path,
+                 'file_size', sf.file_size,
+                 'file_type', sf.file_type,
+                 'uploaded_at', sf.uploaded_at
+               )
+             ) FILTER (WHERE sf.id IS NOT NULL) as files
+      FROM assignment_submissions asub
+      JOIN assignments a ON asub.assignment_id = a.id
+      JOIN courses c ON a.course_id = c.id
+      JOIN users u ON asub.student_id = u.id
+      LEFT JOIN submission_files sf ON asub.id = sf.submission_id
+      WHERE 1=1
+    `;
+        const params = [];
+        let paramCount = 1;
+        if (courseId) {
+            query += ` AND c.id = $${paramCount}`;
+            params.push(courseId);
+            paramCount++;
+        }
+        if (studentId) {
+            query += ` AND asub.student_id = $${paramCount}`;
+            params.push(studentId);
+            paramCount++;
+        }
+        if (assignmentId) {
+            query += ` AND asub.assignment_id = $${paramCount}`;
+            params.push(assignmentId);
+            paramCount++;
+        }
+        query += ' GROUP BY asub.id, a.id, c.id, u.id ORDER BY asub.submitted_at DESC';
+        const result = await database_1.pool.query(query, params);
+        res.json({
+            message: 'Assignment submissions retrieved successfully',
+            submissions: result.rows
+        });
+    }
+    catch (error) {
+        console.error('Error fetching submissions:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// Get file statistics
+router.get('/files/stats', async (req, res) => {
+    try {
+        const [materials, submissions, assignmentFiles] = await Promise.all([
+            database_1.pool.query('SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as total_size FROM course_materials'),
+            database_1.pool.query('SELECT COUNT(*) as count FROM assignment_submissions'),
+            database_1.pool.query('SELECT COUNT(*) as count, COALESCE(SUM(file_size), 0) as total_size FROM submission_files')
+        ]);
+        const materialStats = materials.rows[0];
+        const submissionStats = submissions.rows[0];
+        const submissionFileStats = assignmentFiles.rows[0];
+        res.json({
+            message: 'File statistics retrieved successfully',
+            stats: {
+                courseMaterials: {
+                    count: parseInt(materialStats.count),
+                    totalSize: parseInt(materialStats.total_size)
+                },
+                submissions: {
+                    count: parseInt(submissionStats.count)
+                },
+                submissionFiles: {
+                    count: parseInt(submissionFileStats.count),
+                    totalSize: parseInt(submissionFileStats.total_size)
+                }
+            }
+        });
+    }
+    catch (error) {
+        console.error('Error fetching file stats:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// Get signed URL for any file (admin access)
+router.get('/files/download/:type/:id', async (req, res) => {
+    try {
+        const { type, id } = req.params;
+        let filePath = null;
+        let fileName = null;
+        if (type === 'material') {
+            const result = await database_1.pool.query('SELECT file_path, file_name FROM course_materials WHERE id = $1', [id]);
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: 'Material not found' });
+            }
+            filePath = result.rows[0].file_path;
+            fileName = result.rows[0].file_name;
+        }
+        else if (type === 'submission') {
+            const result = await database_1.pool.query('SELECT file_path, file_name FROM submission_files WHERE id = $1', [id]);
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: 'Submission file not found' });
+            }
+            filePath = result.rows[0].file_path;
+            fileName = result.rows[0].file_name;
+        }
+        else if (type === 'assignment') {
+            const result = await database_1.pool.query('SELECT file_path, file_name FROM assignment_files WHERE id = $1', [id]);
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: 'Assignment file not found' });
+            }
+            filePath = result.rows[0].file_path;
+            fileName = result.rows[0].file_name;
+        }
+        else {
+            return res.status(400).json({ error: 'Invalid file type' });
+        }
+        if (!filePath) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        // Generate signed URL (valid for 60 minutes)
+        const signedUrl = await (0, storage_1.generateSignedUrl)(filePath, 60);
+        res.json({
+            message: 'Download URL generated successfully',
+            url: signedUrl,
+            fileName: fileName
+        });
+    }
+    catch (error) {
+        console.error('Error generating download URL:', error);
+        res.status(500).json({ error: 'Failed to generate download URL' });
     }
 });
 exports.default = router;

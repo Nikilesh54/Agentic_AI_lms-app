@@ -59,6 +59,19 @@ export const rootAPI = {
 
   deleteProfessor: (professorId: number) =>
     apiClient.delete(`/root/users/${professorId}`),
+
+  // File management
+  getAllMaterials: (params?: { courseId?: number; professorId?: number }) =>
+    apiClient.get('/root/files/materials', { params }),
+
+  getAllSubmissions: (params?: { courseId?: number; studentId?: number; assignmentId?: number }) =>
+    apiClient.get('/root/files/submissions', { params }),
+
+  getFileStats: () =>
+    apiClient.get('/root/files/stats'),
+
+  downloadFile: (type: 'material' | 'submission' | 'assignment', fileId: number) =>
+    apiClient.get(`/root/files/download/${type}/${fileId}`),
 };
 
 // Professor API
@@ -75,7 +88,7 @@ export const professorAPI = {
   getAssignments: () =>
     apiClient.get('/professor/assignments'),
 
-  createAssignment: (data: { title: string; description?: string; dueDate?: string; points?: number }) =>
+  createAssignment: (data: { title: string; description?: string; questionText?: string; dueDate?: string; points?: number }) =>
     apiClient.post('/professor/assignments', data),
 
   updateAssignment: (assignmentId: number, data: { title?: string; description?: string; dueDate?: string; points?: number }) =>
@@ -95,6 +108,53 @@ export const professorAPI = {
 
   deleteAnnouncement: (announcementId: number) =>
     apiClient.delete(`/professor/announcements/${announcementId}`),
+
+  // Course Materials
+  getMaterials: () =>
+    apiClient.get('/professor/materials'),
+
+  uploadMaterials: (files: FileList) => {
+    const formData = new FormData();
+    Array.from(files).forEach((file) => {
+      formData.append('files', file);
+    });
+    return apiClient.post('/professor/materials', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  deleteMaterial: (materialId: number) =>
+    apiClient.delete(`/professor/materials/${materialId}`),
+
+  downloadMaterial: (materialId: number) =>
+    apiClient.get(`/professor/materials/${materialId}/download`),
+
+  // Assignment Files
+  getAssignmentFiles: (assignmentId: number) =>
+    apiClient.get(`/professor/assignments/${assignmentId}/files`),
+
+  uploadAssignmentFiles: (assignmentId: number, files: FileList) => {
+    const formData = new FormData();
+    Array.from(files).forEach((file) => {
+      formData.append('files', file);
+    });
+    return apiClient.post(`/professor/assignments/${assignmentId}/files`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  deleteAssignmentFile: (assignmentId: number, fileId: number) =>
+    apiClient.delete(`/professor/assignments/${assignmentId}/files/${fileId}`),
+
+  // Submissions
+  getSubmissions: (assignmentId: number) =>
+    apiClient.get(`/professor/assignments/${assignmentId}/submissions`),
+
+  gradeSubmission: (submissionId: number, data: { grade: number; feedback?: string }) =>
+    apiClient.put(`/professor/submissions/${submissionId}/grade`, data),
+
+  downloadSubmissionFile: (fileId: number) =>
+    apiClient.get(`/professor/submissions/files/${fileId}/download`),
 };
 
 // Student API
@@ -119,6 +179,38 @@ export const studentAPI = {
 
   getCourseAnnouncements: (courseId: number) =>
     apiClient.get(`/student/courses/${courseId}/announcements`),
+
+  // Course Materials
+  getCourseMaterials: (courseId: number) =>
+    apiClient.get(`/student/courses/${courseId}/materials`),
+
+  downloadMaterial: (materialId: number) =>
+    apiClient.get(`/student/materials/${materialId}/download`),
+
+  // Assignments
+  getAssignment: (assignmentId: number) =>
+    apiClient.get(`/student/assignments/${assignmentId}`),
+
+  submitAssignment: (assignmentId: number, data: { submissionText?: string; files?: FileList }) => {
+    const formData = new FormData();
+    if (data.submissionText) {
+      formData.append('submissionText', data.submissionText);
+    }
+    if (data.files) {
+      Array.from(data.files).forEach((file) => {
+        formData.append('files', file);
+      });
+    }
+    return apiClient.post(`/student/assignments/${assignmentId}/submit`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  getMySubmission: (assignmentId: number) =>
+    apiClient.get(`/student/assignments/${assignmentId}/my-submission`),
+
+  downloadAssignmentFile: (fileId: number) =>
+    apiClient.get(`/student/assignments/files/${fileId}/download`),
 };
 
 export default apiClient;

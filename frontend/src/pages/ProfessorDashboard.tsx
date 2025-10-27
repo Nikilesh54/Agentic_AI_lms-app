@@ -7,17 +7,19 @@ import './ProfessorDashboard.css';
 const ProfessorDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'assignments' | 'announcements'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'materials' | 'assignments' | 'announcements'>('overview');
   const [loading, setLoading] = useState(false);
 
   const [course, setCourse] = useState<any>(null);
   const [students, setStudents] = useState<any[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
 
   const [showAddAssignment, setShowAddAssignment] = useState(false);
   const [showAddAnnouncement, setShowAddAnnouncement] = useState(false);
-  const [newAssignment, setNewAssignment] = useState({ title: '', description: '', dueDate: '', points: 100 });
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [newAssignment, setNewAssignment] = useState({ title: '', description: '', questionText: '', dueDate: '', points: 100 });
   const [newAnnouncement, setNewAnnouncement] = useState({ title: '', content: '' });
 
   useEffect(() => {
@@ -26,6 +28,7 @@ const ProfessorDashboard: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'students') loadStudents();
+    if (activeTab === 'materials') loadMaterials();
     if (activeTab === 'assignments') loadAssignments();
     if (activeTab === 'announcements') loadAnnouncements();
   }, [activeTab]);
@@ -63,6 +66,18 @@ const ProfessorDashboard: React.FC = () => {
     }
   };
 
+  const loadMaterials = async () => {
+    try {
+      setLoading(true);
+      const response = await professorAPI.getMaterials();
+      setMaterials(response.data.materials);
+    } catch (error) {
+      showToast('Failed to load course materials', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadAnnouncements = async () => {
     try {
       setLoading(true);
@@ -80,7 +95,7 @@ const ProfessorDashboard: React.FC = () => {
     try {
       await professorAPI.createAssignment(newAssignment);
       showToast('Assignment created successfully', 'success');
-      setNewAssignment({ title: '', description: '', dueDate: '', points: 100 });
+      setNewAssignment({ title: '', description: '', questionText: '', dueDate: '', points: 100 });
       setShowAddAssignment(false);
       loadAssignments();
     } catch (error: any) {
@@ -121,6 +136,49 @@ const ProfessorDashboard: React.FC = () => {
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Failed to delete announcement', 'error');
     }
+  };
+
+  const handleUploadMaterials = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    try {
+      setUploadingFiles(true);
+      await professorAPI.uploadMaterials(files);
+      showToast('Materials uploaded successfully', 'success');
+      loadMaterials();
+      e.target.value = ''; // Reset file input
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to upload materials', 'error');
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const handleDeleteMaterial = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this material?')) return;
+    try {
+      await professorAPI.deleteMaterial(id);
+      showToast('Material deleted successfully', 'success');
+      loadMaterials();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to delete material', 'error');
+    }
+  };
+
+  const handleDownloadMaterial = async (id: number) => {
+    try {
+      const response = await professorAPI.downloadMaterial(id);
+      window.open(response.data.url, '_blank');
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to download material', 'error');
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
   };
 
   // Check if professor is pending
@@ -170,6 +228,9 @@ const ProfessorDashboard: React.FC = () => {
         </button>
         <button className={`tab ${activeTab === 'students' ? 'active' : ''}`} onClick={() => setActiveTab('students')}>
           Students
+        </button>
+        <button className={`tab ${activeTab === 'materials' ? 'active' : ''}`} onClick={() => setActiveTab('materials')}>
+          Course Materials
         </button>
         <button className={`tab ${activeTab === 'assignments' ? 'active' : ''}`} onClick={() => setActiveTab('assignments')}>
           Assignments
@@ -227,6 +288,58 @@ const ProfessorDashboard: React.FC = () => {
           </div>
         )}
 
+        {activeTab === 'materials' && (
+          <div className="materials-section">
+            <div className="section-header">
+              <h2>Course Materials</h2>
+              <label htmlFor="file-upload" className="btn-primary" style={{ cursor: 'pointer' }}>
+                {uploadingFiles ? 'Uploading...' : '+ Upload Materials'}
+                <input
+                  id="file-upload"
+                  type="file"
+                  multiple
+                  onChange={handleUploadMaterials}
+                  style={{ display: 'none' }}
+                  disabled={uploadingFiles}
+                />
+              </label>
+            </div>
+
+            {materials.length === 0 ? (
+              <p className="empty-message">No course materials uploaded yet</p>
+            ) : (
+              <div className="materials-list">
+                {materials.map((material: any) => (
+                  <div key={material.id} className="material-card">
+                    <div className="material-icon">📄</div>
+                    <div className="material-info">
+                      <h3>{material.file_name}</h3>
+                      <p className="material-meta">
+                        {formatFileSize(material.file_size)} •
+                        Uploaded {new Date(material.uploaded_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="material-actions">
+                      <button
+                        className="btn-secondary"
+                        onClick={() => handleDownloadMaterial(material.id)}
+                      >
+                        Download
+                      </button>
+                      <button
+                        className="btn-delete-icon"
+                        onClick={() => handleDeleteMaterial(material.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'assignments' && (
           <div className="assignments-section">
             <div className="section-header">
@@ -255,6 +368,15 @@ const ProfessorDashboard: React.FC = () => {
                       <textarea
                         value={newAssignment.description}
                         onChange={(e) => setNewAssignment({ ...newAssignment, description: e.target.value })}
+                        rows={3}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Question</label>
+                      <textarea
+                        value={newAssignment.questionText}
+                        onChange={(e) => setNewAssignment({ ...newAssignment, questionText: e.target.value })}
+                        placeholder="Enter the assignment question or instructions..."
                         rows={4}
                       />
                     </div>
