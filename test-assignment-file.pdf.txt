@@ -1,0 +1,16 @@
+Assignment Instructions: Machine Learning Project
+
+Due Date: November 15, 2025
+
+Instructions:
+1. Build a classification model using scikit-learn
+2. Use the Iris dataset
+3. Achieve at least 90% accuracy
+4. Submit your code and a report
+
+Evaluation Criteria:
+- Code quality: 40%
+- Model performance: 40%
+- Documentation: 20%
+
+Good luck!

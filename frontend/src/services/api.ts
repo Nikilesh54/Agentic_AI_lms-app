@@ -213,4 +213,53 @@ export const studentAPI = {
     apiClient.get(`/student/assignments/files/${fileId}/download`),
 };
 
+// Chat API
+export const chatAPI = {
+  // Get enrolled courses for chat
+  getCourses: () =>
+    apiClient.get('/chat/courses'),
+
+  // Create or get chat session
+  createSession: (courseId: number) =>
+    apiClient.post('/chat/sessions', { courseId }),
+
+  // Get all sessions
+  getSessions: (params?: { courseId?: number; status?: string }) =>
+    apiClient.get('/chat/sessions', { params }),
+
+  // Get messages for a session
+  getMessages: (sessionId: number, params?: { limit?: number; offset?: number }) =>
+    apiClient.get(`/chat/sessions/${sessionId}/messages`, { params }),
+
+  // Send a message
+  sendMessage: (sessionId: number, content: string) =>
+    apiClient.post(`/chat/sessions/${sessionId}/messages`, { content }),
+
+  // Archive a session
+  archiveSession: (sessionId: number) =>
+    apiClient.patch(`/chat/sessions/${sessionId}/archive`),
+
+  // Regenerate last response
+  regenerateResponse: (sessionId: number) =>
+    apiClient.post(`/chat/sessions/${sessionId}/regenerate`),
+
+  // Get generated content
+  getGeneratedContent: (params?: { courseId?: number; contentType?: string; isSaved?: boolean }) =>
+    apiClient.get('/chat/generated-content', { params }),
+
+  // Save generated content
+  saveGeneratedContent: (data: {
+    sessionId: number;
+    contentType: string;
+    title?: string;
+    content: string;
+    metadata?: any;
+  }) =>
+    apiClient.post('/chat/generated-content', data),
+
+  // Delete generated content
+  deleteGeneratedContent: (contentId: number) =>
+    apiClient.delete(`/chat/generated-content/${contentId}`),
+};
+
 export default apiClient;

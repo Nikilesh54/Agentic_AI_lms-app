@@ -6,6 +6,8 @@ import Signup from './pages/Signup';
 import Courses from './pages/Courses';
 import CoursePage from './pages/CoursePage';
 import AssignmentSubmission from './pages/AssignmentSubmission';
+import AIAgentHub from './pages/AIAgentHub';
+import ChatInterface from './pages/ChatInterface';
 import ProtectedRoute from './components/ProtectedRoute';
 import RoleBasedDashboard from './components/RoleBasedDashboard';
 import './App.css';
@@ -48,6 +50,22 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <AssignmentSubmission />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/ai-agent-hub"
+                element={
+                  <ProtectedRoute>
+                    <AIAgentHub />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/chat/:sessionId"
+                element={
+                  <ProtectedRoute>
+                    <ChatInterface />
                   </ProtectedRoute>
                 }
               />

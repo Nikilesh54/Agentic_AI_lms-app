@@ -1,0 +1,16 @@
+Course Material: Introduction to Machine Learning
+
+This is a test course material file for the Learning Management System.
+
+Topics Covered:
+1. Supervised Learning
+2. Unsupervised Learning
+3. Neural Networks
+4. Deep Learning
+5. Model Evaluation
+
+This file will be used to test the file upload, download, and management features of the LMS.
+
+Date: October 20, 2025
+Instructor: Professor1
+Course: Machine Learning

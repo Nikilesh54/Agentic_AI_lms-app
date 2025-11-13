@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast';
 import { studentAPI } from '../services/api';
@@ -7,7 +7,6 @@ import './AssignmentSubmission.css';
 
 const AssignmentSubmission: React.FC = () => {
   const { assignmentId } = useParams<{ assignmentId: string }>();
-  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { showToast } = useToast();
 

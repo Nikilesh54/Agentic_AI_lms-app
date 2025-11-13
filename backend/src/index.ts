@@ -7,6 +7,7 @@ import authRoutes from './routes/auth';
 import rootRoutes from './routes/root';
 import professorRoutes from './routes/professor';
 import studentRoutes from './routes/student';
+import chatRoutes from './routes/chat';
 import { connectDB } from './config/database';
 
 dotenv.config();
@@ -26,6 +27,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/root', rootRoutes);
 app.use('/api/professor', professorRoutes);
 app.use('/api/student', studentRoutes);
+app.use('/api/chat', chatRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

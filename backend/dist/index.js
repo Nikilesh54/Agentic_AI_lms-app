@@ -12,6 +12,7 @@ const auth_1 = __importDefault(require("./routes/auth"));
 const root_1 = __importDefault(require("./routes/root"));
 const professor_1 = __importDefault(require("./routes/professor"));
 const student_1 = __importDefault(require("./routes/student"));
+const chat_1 = __importDefault(require("./routes/chat"));
 const database_1 = require("./config/database");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -27,6 +28,7 @@ app.use('/api/auth', auth_1.default);
 app.use('/api/root', root_1.default);
 app.use('/api/professor', professor_1.default);
 app.use('/api/student', student_1.default);
+app.use('/api/chat', chat_1.default);
 // Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ message: 'LMS API is running!' });

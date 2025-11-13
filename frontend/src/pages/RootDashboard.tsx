@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast';
 import { rootAPI } from '../services/api';
@@ -55,6 +56,7 @@ interface Stats {
 const RootDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const { showToast } = useToast();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'professors' | 'users' | 'courses' | 'files'>('overview');
   const [loading, setLoading] = useState(false);
 
@@ -303,9 +305,14 @@ const RootDashboard: React.FC = () => {
             <h1>Root Dashboard</h1>
             <p>Welcome, {user?.fullName}</p>
           </div>
-          <button onClick={logout} className="logout-button">
-            Logout
-          </button>
+          <div className="header-actions">
+            <button onClick={() => navigate('/ai-agent-hub')} className="ai-hub-button">
+              🤖 AI Agent Hub
+            </button>
+            <button onClick={logout} className="logout-button">
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
