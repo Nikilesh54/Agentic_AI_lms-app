@@ -21,6 +21,10 @@ export const connectDB = async () => {
     // Create tables if they don't exist
     await createTables();
 
+    // Run migrations for multi-agent HITL system
+    const { runMigrations } = await import('../db/migrations/runMigrations');
+    await runMigrations();
+
     // Seed root user
     await seedRootUser();
   } catch (error) {
