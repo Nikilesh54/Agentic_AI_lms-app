@@ -8,6 +8,7 @@ import CoursePage from './pages/CoursePage';
 import AssignmentSubmission from './pages/AssignmentSubmission';
 import AIAgentHub from './pages/AIAgentHub';
 import ChatInterface from './pages/ChatInterface';
+import AgentContentViewer from './pages/AgentContentViewer';
 import ProtectedRoute from './components/ProtectedRoute';
 import RoleBasedDashboard from './components/RoleBasedDashboard';
 import './App.css';
@@ -66,6 +67,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <ChatInterface />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/agent-content/:contentId"
+                element={
+                  <ProtectedRoute>
+                    <AgentContentViewer />
                   </ProtectedRoute>
                 }
               />
