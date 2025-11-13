@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { pool } from '../config/database';
 import { authenticate, authorize, requireActiveStatus } from '../middleware/auth';
-import { uploadMultipleFiles, handleMulterError } from '../middleware/upload';
+import { uploadSubmissionFiles, validateSubmissionSize, handleMulterError } from '../middleware/upload';
 import { uploadFile, generateSignedUrl } from '../config/storage';
 
 const router = express.Router();
@@ -440,7 +440,7 @@ router.get('/assignments/:assignmentId', async (req, res) => {
 });
 
 // Submit assignment
-router.post('/assignments/:assignmentId/submit', uploadMultipleFiles, handleMulterError, async (req: Request, res: Response) => {
+router.post('/assignments/:assignmentId/submit', uploadSubmissionFiles, validateSubmissionSize, handleMulterError, async (req: Request, res: Response) => {
   const client = await pool.connect();
 
   try {

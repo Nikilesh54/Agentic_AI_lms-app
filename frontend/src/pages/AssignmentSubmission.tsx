@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast';
 import { studentAPI } from '../services/api';
+import { validateByType, formatFileSize as formatSize, getAllowedTypesDescription } from '../utils/fileValidation';
 import './AssignmentSubmission.css';
 
 const AssignmentSubmission: React.FC = () => {
@@ -40,7 +41,22 @@ const AssignmentSubmission: React.FC = () => {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSelectedFiles(e.target.files);
+    const files = e.target.files;
+    if (!files || files.length === 0) {
+      setSelectedFiles(null);
+      return;
+    }
+
+    // Client-side validation
+    const validation = validateByType(files, 'studentSubmissions');
+    if (!validation.valid) {
+      showToast(validation.error || 'Invalid file selection', 'error');
+      e.target.value = ''; // Reset file input
+      setSelectedFiles(null);
+      return;
+    }
+
+    setSelectedFiles(files);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,6 +67,16 @@ const AssignmentSubmission: React.FC = () => {
       return;
     }
 
+    // Revalidate files before submission (in case they were set programmatically)
+    if (selectedFiles && selectedFiles.length > 0) {
+      const validation = validateByType(selectedFiles, 'studentSubmissions');
+      if (!validation.valid) {
+        showToast(validation.error || 'Invalid file selection', 'error');
+        setSelectedFiles(null);
+        return;
+      }
+    }
+
     try {
       setSubmitting(true);
       await studentAPI.submitAssignment(parseInt(assignmentId!), {
@@ -59,6 +85,7 @@ const AssignmentSubmission: React.FC = () => {
       });
       showToast('Assignment submitted successfully', 'success');
       loadAssignment(); // Reload to show the updated submission
+      setSelectedFiles(null); // Reset selected files
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Failed to submit assignment', 'error');
     } finally {
