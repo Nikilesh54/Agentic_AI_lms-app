@@ -9,6 +9,7 @@ import professorRoutes from './routes/professor';
 import studentRoutes from './routes/student';
 import chatRoutes from './routes/chat';
 import { connectDB } from './config/database';
+import { initializeServices } from './services/initializeServices';
 
 dotenv.config();
 
@@ -38,8 +39,13 @@ app.get('/api/health', (req, res) => {
 const startServer = async () => {
   try {
     await connectDB();
+
+    // Initialize multi-agent HITL services
+    await initializeServices();
+
     app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
+      console.log(`\n🚀 Server is running on port ${PORT}`);
+      console.log(`📍 API Health: http://localhost:${PORT}/api/health\n`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
