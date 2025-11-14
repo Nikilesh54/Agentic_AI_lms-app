@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast';
 import { professorAPI } from '../services/api';
+import { validateByType, formatFileSize as formatSize, getAllowedTypesDescription } from '../utils/fileValidation';
 import './ProfessorDashboard.css';
 
 const ProfessorDashboard: React.FC = () => {
@@ -144,14 +145,23 @@ const ProfessorDashboard: React.FC = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    // Client-side validation
+    const validation = validateByType(files, 'courseMaterials');
+    if (!validation.valid) {
+      showToast(validation.error || 'Invalid file selection', 'error');
+      e.target.value = ''; // Reset file input
+      return;
+    }
+
     try {
       setUploadingFiles(true);
       await professorAPI.uploadMaterials(files);
-      showToast('Materials uploaded successfully', 'success');
+      showToast(`${files.length} file(s) uploaded successfully`, 'success');
       loadMaterials();
       e.target.value = ''; // Reset file input
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Failed to upload materials', 'error');
+      e.target.value = ''; // Reset file input on error too
     } finally {
       setUploadingFiles(false);
     }

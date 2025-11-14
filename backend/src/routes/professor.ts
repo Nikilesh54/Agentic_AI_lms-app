@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { pool } from '../config/database';
 import { authenticate, authorize, requireApprovedProfessor } from '../middleware/auth';
-import { uploadMultipleFiles, handleMulterError } from '../middleware/upload';
+import { uploadCourseMaterials, uploadAssignmentFiles, handleMulterError } from '../middleware/upload';
 import { uploadFile, deleteFile, generateSignedUrl } from '../config/storage';
 
 const router = express.Router();
@@ -476,7 +476,7 @@ router.delete('/announcements/:id', async (req, res) => {
 // ========== COURSE MATERIALS ENDPOINTS ==========
 
 // Upload course materials
-router.post('/materials', uploadMultipleFiles, handleMulterError, async (req: Request, res: Response) => {
+router.post('/materials', uploadCourseMaterials, handleMulterError, async (req: Request, res: Response) => {
   const client = await pool.connect();
 
   try {
@@ -672,7 +672,7 @@ router.get('/materials/:id/download', async (req, res) => {
 // ========== ASSIGNMENT FILES ENDPOINTS ==========
 
 // Upload files to an assignment
-router.post('/assignments/:assignmentId/files', uploadMultipleFiles, handleMulterError, async (req: Request, res: Response) => {
+router.post('/assignments/:assignmentId/files', uploadAssignmentFiles, handleMulterError, async (req: Request, res: Response) => {
   const client = await pool.connect();
 
   try {

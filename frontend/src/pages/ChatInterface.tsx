@@ -33,6 +33,11 @@ const ChatInterface: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [agentStatus, setAgentStatus] = useState<'ready' | 'thinking' | 'active'>('ready');
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [selectedMessageToSave, setSelectedMessageToSave] = useState<Message | null>(null);
+  const [saveContentType, setSaveContentType] = useState('notes');
+  const [saveContentTitle, setSaveContentTitle] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -163,6 +168,50 @@ const ChatInterface: React.FC = () => {
       console.error('Error archiving session:', error);
       showToast(error.response?.data?.error || 'Failed to archive chat', 'error');
     }
+  };
+
+  const handleSaveContent = (message: Message) => {
+    setSelectedMessageToSave(message);
+    setSaveContentTitle('');
+    setSaveContentType('notes');
+    setShowSaveModal(true);
+  };
+
+  const handleSaveContentSubmit = async () => {
+    if (!selectedMessageToSave || !sessionId || !saveContentTitle.trim()) {
+      showToast('Please provide a title for the content', 'error');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await chatAPI.saveGeneratedContent({
+        sessionId: parseInt(sessionId),
+        contentType: saveContentType,
+        title: saveContentTitle.trim(),
+        content: selectedMessageToSave.content,
+        metadata: {
+          messageId: selectedMessageToSave.id,
+          savedAt: new Date().toISOString()
+        }
+      });
+
+      showToast('Content saved successfully', 'success');
+      setShowSaveModal(false);
+      setSelectedMessageToSave(null);
+    } catch (error: any) {
+      console.error('Error saving content:', error);
+      showToast(error.response?.data?.error || 'Failed to save content', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCloseSaveModal = () => {
+    setShowSaveModal(false);
+    setSelectedMessageToSave(null);
+    setSaveContentTitle('');
+    setSaveContentType('notes');
   };
 
   const formatTime = (dateString: string) => {
@@ -309,6 +358,13 @@ const ChatInterface: React.FC = () => {
                               >
                                 📋
                               </button>
+                              <button
+                                className="icon-button"
+                                onClick={() => handleSaveContent(message)}
+                                title="Save content"
+                              >
+                                💾
+                              </button>
                               {messages[messages.length - 1]?.id === message.id && (
                                 <button
                                   className="icon-button"
@@ -387,6 +443,69 @@ const ChatInterface: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Save Content Modal */}
+      {showSaveModal && (
+        <div className="modal-overlay" onClick={handleCloseSaveModal}>
+          <div className="save-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>💾 Save Content</h2>
+              <button className="close-modal-btn" onClick={handleCloseSaveModal}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label htmlFor="content-title">Title *</label>
+                <input
+                  id="content-title"
+                  type="text"
+                  className="form-input"
+                  placeholder="Enter a title for this content"
+                  value={saveContentTitle}
+                  onChange={(e) => setSaveContentTitle(e.target.value)}
+                  maxLength={100}
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="content-type">Content Type</label>
+                <select
+                  id="content-type"
+                  className="form-select"
+                  value={saveContentType}
+                  onChange={(e) => setSaveContentType(e.target.value)}
+                >
+                  <option value="notes">Notes</option>
+                  <option value="summary">Summary</option>
+                  <option value="practice_questions">Practice Questions</option>
+                  <option value="explanation">Explanation</option>
+                  <option value="study_guide">Study Guide</option>
+                  <option value="quiz">Quiz</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Preview</label>
+                <div className="content-preview">
+                  {selectedMessageToSave?.content.substring(0, 200)}
+                  {selectedMessageToSave && selectedMessageToSave.content.length > 200 ? '...' : ''}
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-btn" onClick={handleCloseSaveModal} disabled={saving}>
+                Cancel
+              </button>
+              <button
+                className="save-btn"
+                onClick={handleSaveContentSubmit}
+                disabled={!saveContentTitle.trim() || saving}
+              >
+                {saving ? 'Saving...' : 'Save Content'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
