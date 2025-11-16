@@ -1,0 +1,530 @@
+.professor-assignment-detail-page {
+  min-height: 100vh;
+  background-color: #f5f7fa;
+}
+
+.page-header {
+  background: white;
+  border-bottom: 1px solid #e1e4e8;
+  padding: 1rem 2rem;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.breadcrumb a {
+  color: #0969da;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.user-info {
+  font-size: 0.9rem;
+  color: #57606a;
+}
+
+.logout-button {
+  padding: 0.5rem 1rem;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.logout-button:hover {
+  background: #f3f4f6;
+}
+
+.page-main {
+  max-width: 1400px;
+  margin: 2rem auto;
+  padding: 0 2rem;
+}
+
+.assignment-detail-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+/* Assignment Information Section */
+.assignment-info-section {
+  background: white;
+  border-radius: 8px;
+  padding: 2rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  height: fit-content;
+  position: sticky;
+  top: 100px;
+}
+
+.assignment-info-section h1 {
+  margin: 0 0 1rem 0;
+  color: #1f2937;
+  font-size: 1.75rem;
+}
+
+.assignment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.assignment-meta span {
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.due-date {
+  color: #dc2626 !important;
+  font-weight: 500;
+}
+
+.points {
+  color: #059669 !important;
+  font-weight: 500;
+}
+
+.submission-stats {
+  color: #3b82f6 !important;
+  font-weight: 500;
+}
+
+.info-block {
+  margin-bottom: 1.5rem;
+}
+
+.info-block h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.75rem 0;
+  color: #374151;
+}
+
+.info-block p {
+  color: #4b5563;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.question-text {
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 6px;
+  border-left: 3px solid #3b82f6;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.file-icon {
+  font-size: 1.5rem;
+}
+
+.file-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.file-name {
+  font-size: 0.9rem;
+  color: #1f2937;
+  font-weight: 500;
+}
+
+.file-size {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.empty-message {
+  color: #6b7280;
+  font-style: italic;
+  text-align: center;
+  padding: 2rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px dashed #d1d5db;
+}
+
+/* Submissions Section */
+.submissions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.submissions-section > h2 {
+  font-size: 1.5rem;
+  color: #1f2937;
+  margin: 0;
+}
+
+.submissions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.submission-card {
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+}
+
+.submission-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.student-info h3 {
+  margin: 0 0 0.25rem 0;
+  color: #1f2937;
+  font-size: 1.1rem;
+}
+
+.student-email {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.grade-badge {
+  padding: 0.4rem 0.8rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.grade-badge.graded {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.grade-badge.not-graded {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.submission-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.submitted-date {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+.submission-text {
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 6px;
+}
+
+.submission-text strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #374151;
+  font-size: 0.9rem;
+}
+
+.submission-text p {
+  margin: 0;
+  color: #4b5563;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.submission-files strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #374151;
+  font-size: 0.9rem;
+}
+
+.submission-files .files-list {
+  gap: 0.5rem;
+}
+
+.submission-feedback {
+  background: #fef3c7;
+  padding: 1rem;
+  border-radius: 6px;
+  border-left: 3px solid #f59e0b;
+}
+
+.submission-feedback strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #92400e;
+  font-size: 0.9rem;
+}
+
+.submission-feedback p {
+  margin: 0;
+  color: #78350f;
+  line-height: 1.6;
+}
+
+.submission-footer {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Buttons */
+.btn-primary {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background: #2563eb;
+}
+
+.btn-edit {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn-edit:hover {
+  background: #059669;
+}
+
+.btn-secondary {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #e5e7eb;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #3b82f6;
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.btn-link:hover {
+  color: #2563eb;
+}
+
+.btn-delete-icon {
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.btn-delete-icon:hover {
+  background: #fee2e2;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  padding: 2rem;
+  max-width: 500px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-content h3 {
+  margin: 0 0 1.5rem 0;
+  color: #1f2937;
+  font-size: 1.3rem;
+}
+
+.form-group {
+  margin-bottom: 1.25rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #374151;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  padding: 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-group textarea {
+  resize: vertical;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.loading,
+.error {
+  text-align: center;
+  padding: 3rem;
+  color: #6b7280;
+  font-size: 1.1rem;
+}
+
+.error {
+  color: #dc2626;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .assignment-detail-container {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-info-section {
+    position: static;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-main {
+    padding: 0 1rem;
+    margin: 1rem auto;
+  }
+
+  .assignment-info-section,
+  .submission-card {
+    padding: 1rem;
+  }
+
+  .header-content {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .assignment-meta {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .submission-header {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}
