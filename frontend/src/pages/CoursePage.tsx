@@ -81,6 +81,9 @@ const CoursePage: React.FC = () => {
     return <div className="loading">Loading...</div>;
   }
 
+  console.log('CoursePage rendering with tabs - activeTab:', activeTab);
+  console.log('Assignments count:', assignments.length);
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'overview':
@@ -91,10 +94,10 @@ const CoursePage: React.FC = () => {
               <p>{course.description}</p>
               <div className="course-details">
                 <div className="detail-item">
-                  <strong>Instructor:</strong> {course.instructor}
+                  <strong>Instructor:</strong> {course.instructor_name || course.instructor || 'N/A'}
                 </div>
                 <div className="detail-item">
-                  <strong>Progress:</strong> {course.progress}%
+                  <strong>Progress:</strong> {course.progress || 0}%
                 </div>
               </div>
             </div>
@@ -221,9 +224,11 @@ const CoursePage: React.FC = () => {
       <header className="course-header">
         <div className="header-content">
           <div className="breadcrumb">
-            <Link to="/courses">Courses</Link>
-            <span> / </span>
-            <span>{course.title}</span>
+            <Link to="/dashboard">← Back to Dashboard</Link>
+          </div>
+          <div className="header-title">
+            <h1>{course.title}</h1>
+            <p className="course-instructor-header">Instructor: {course.instructor_name || course.instructor || 'N/A'}</p>
           </div>
           <div className="header-actions">
             <span className="user-info">Welcome, {user?.fullName}</span>
@@ -236,11 +241,6 @@ const CoursePage: React.FC = () => {
 
       <main className="course-main">
         <div className="course-container">
-          <div className="course-title-section">
-            <h1>{course.title}</h1>
-            <p className="course-instructor">Instructor: {course.instructor}</p>
-          </div>
-
           <div className="course-tabs">
             <button 
               className={`tab ${activeTab === 'overview' ? 'active' : ''}`}

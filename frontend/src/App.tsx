@@ -6,6 +6,7 @@ import Signup from './pages/Signup';
 import Courses from './pages/Courses';
 import CoursePage from './pages/CoursePage';
 import AssignmentSubmission from './pages/AssignmentSubmission';
+import ProfessorAssignmentDetail from './pages/ProfessorAssignmentDetail';
 import AIAgentHub from './pages/AIAgentHub';
 import ChatInterface from './pages/ChatInterface';
 import AgentContentViewer from './pages/AgentContentViewer';
@@ -51,6 +52,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <AssignmentSubmission />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/professor/assignments/:assignmentId"
+                element={
+                  <ProtectedRoute>
+                    <ProfessorAssignmentDetail />
                   </ProtectedRoute>
                 }
               />

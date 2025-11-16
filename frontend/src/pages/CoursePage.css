@@ -20,6 +20,24 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 20px;
+}
+
+.header-title {
+  flex: 1;
+  text-align: center;
+}
+
+.header-title h1 {
+  margin: 0 0 5px 0;
+  font-size: 1.75rem;
+  color: var(--color-text-primary);
+}
+
+.course-instructor-header {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-text-light);
 }
 
 .breadcrumb {

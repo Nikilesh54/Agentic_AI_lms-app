@@ -91,7 +91,7 @@ export const professorAPI = {
   createAssignment: (data: { title: string; description?: string; questionText?: string; dueDate?: string; points?: number }) =>
     apiClient.post('/professor/assignments', data),
 
-  updateAssignment: (assignmentId: number, data: { title?: string; description?: string; dueDate?: string; points?: number }) =>
+  updateAssignment: (assignmentId: number, data: { title?: string; description?: string; questionText?: string; dueDate?: string; points?: number }) =>
     apiClient.put(`/professor/assignments/${assignmentId}`, data),
 
   deleteAssignment: (assignmentId: number) =>

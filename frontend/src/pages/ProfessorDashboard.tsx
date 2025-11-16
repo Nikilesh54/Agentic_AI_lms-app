@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast';
 import { professorAPI } from '../services/api';
-import { validateByType, formatFileSize as formatSize, getAllowedTypesDescription } from '../utils/fileValidation';
+import { validateByType } from '../utils/fileValidation';
 import './ProfessorDashboard.css';
 
 const ProfessorDashboard: React.FC = () => {
@@ -430,10 +430,22 @@ const ProfessorDashboard: React.FC = () => {
             ) : (
               <div className="assignments-list">
                 {assignments.map((assignment: any) => (
-                  <div key={assignment.id} className="assignment-card">
+                  <div
+                    key={assignment.id}
+                    className="assignment-card clickable"
+                    onClick={() => navigate(`/professor/assignments/${assignment.id}`)}
+                  >
                     <div className="assignment-header">
                       <h3>{assignment.title}</h3>
-                      <button className="btn-delete-icon" onClick={() => handleDeleteAssignment(assignment.id)}>✕</button>
+                      <button
+                        className="btn-delete-icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteAssignment(assignment.id);
+                        }}
+                      >
+                        ✕
+                      </button>
                     </div>
                     <p>{assignment.description}</p>
                     <div className="assignment-footer">

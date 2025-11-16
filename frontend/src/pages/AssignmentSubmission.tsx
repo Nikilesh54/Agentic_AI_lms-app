@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast';
 import { studentAPI } from '../services/api';
-import { validateByType, formatFileSize as formatSize, getAllowedTypesDescription } from '../utils/fileValidation';
+import { validateByType } from '../utils/fileValidation';
 import './AssignmentSubmission.css';
 
 const AssignmentSubmission: React.FC = () => {

@@ -294,7 +294,7 @@ GROUP BY ca.id, ca.name, ca.agent_type;
 CREATE OR REPLACE VIEW daily_ai_usage_stats AS
 SELECT
   DATE(cm.created_at) as date,
-  COUNT(DISTINCT cs.session_id) as active_sessions,
+  COUNT(DISTINCT cs.id) as active_sessions,
   COUNT(cm.id) as total_messages,
   COUNT(DISTINCT cs.student_id) as unique_users,
   AVG(cm.confidence_score) as avg_confidence,
