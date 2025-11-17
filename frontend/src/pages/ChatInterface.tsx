@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { chatAPI } from '../services/api';
 import { useToast } from '../components/Toast';
+import MessageMetadata from '../components/MessageMetadata';
 import './ChatInterface.css';
 
 interface Message {
@@ -345,6 +346,15 @@ const ChatInterface: React.FC = () => {
                     ) : (
                       <>
                         <div className="message-content">{message.content}</div>
+
+                        {/* Show sources and trust score for agent messages */}
+                        {message.sender_type === 'agent' && (
+                          <MessageMetadata
+                            messageId={message.id}
+                            metadata={message.message_metadata}
+                          />
+                        )}
+
                         <div className="message-footer">
                           <span className="message-time">
                             {formatTime(message.created_at)}

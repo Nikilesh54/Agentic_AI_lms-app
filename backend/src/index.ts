@@ -8,6 +8,7 @@ import rootRoutes from './routes/root';
 import professorRoutes from './routes/professor';
 import studentRoutes from './routes/student';
 import chatRoutes from './routes/chat';
+import gradingAssistantRoutes from './routes/gradingAssistant';
 import { connectDB } from './config/database';
 import { initializeServices } from './services/initializeServices';
 
@@ -29,6 +30,7 @@ app.use('/api/root', rootRoutes);
 app.use('/api/professor', professorRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/grading-assistant', gradingAssistantRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

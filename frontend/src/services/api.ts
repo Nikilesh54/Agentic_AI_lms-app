@@ -260,6 +260,50 @@ export const chatAPI = {
   // Delete generated content
   deleteGeneratedContent: (contentId: number) =>
     apiClient.delete(`/chat/generated-content/${contentId}`),
+
+  // Get trust score for a message
+  getTrustScore: (messageId: number) =>
+    apiClient.get(`/chat/messages/${messageId}/trust-score`),
+
+  // Get sources for a message
+  getSources: (messageId: number) =>
+    apiClient.get(`/chat/messages/${messageId}/sources`),
+};
+
+// Grading Assistant API
+export const gradingAssistantAPI = {
+  // Generate tentative grade for a submission
+  generateTentativeGrade: (submissionId: number) =>
+    apiClient.post('/grading-assistant/generate-tentative-grade', { submissionId }),
+
+  // Get tentative grade for a submission
+  getTentativeGrade: (submissionId: number) =>
+    apiClient.get(`/grading-assistant/tentative-grade/${submissionId}`),
+
+  // Finalize a tentative grade (Professor only)
+  finalizeGrade: (tentativeGradeId: number, data: { finalGrade: number; feedback: string }) =>
+    apiClient.post(`/grading-assistant/finalize-grade/${tentativeGradeId}`, data),
+
+  // Create grading rubric for an assignment (Professor only)
+  createRubric: (data: {
+    assignmentId: number;
+    rubricName: string;
+    criteria: Array<{
+      name: string;
+      description: string;
+      points: number;
+      excellent_description?: string;
+      good_description?: string;
+      fair_description?: string;
+      poor_description?: string;
+    }>;
+    totalPoints: number;
+  }) =>
+    apiClient.post('/grading-assistant/create-rubric', data),
+
+  // Get rubric for an assignment
+  getRubric: (assignmentId: number) =>
+    apiClient.get(`/grading-assistant/rubric/${assignmentId}`),
 };
 
 export default apiClient;

@@ -12,14 +12,18 @@ export async function runMigrations(): Promise<void> {
   try {
     console.log('Running database migrations...');
 
-    // Read the migration SQL file
-    const migrationPath = path.join(__dirname, 'multi-agent-hitl-schema.sql');
-    const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
-
-    // Execute the migration
-    await client.query(migrationSQL);
-
+    // Migration 1: Multi-agent HITL schema
+    const hitlMigrationPath = path.join(__dirname, 'multi-agent-hitl-schema.sql');
+    const hitlMigrationSQL = fs.readFileSync(hitlMigrationPath, 'utf8');
+    await client.query(hitlMigrationSQL);
     console.log('✓ Multi-agent HITL schema migration completed successfully');
+
+    // Migration 2: New Agent System (Grading Assistant, Chatbot, Integrity Verifier)
+    const newAgentMigrationPath = path.join(__dirname, 'new-agent-system-schema.sql');
+    const newAgentMigrationSQL = fs.readFileSync(newAgentMigrationPath, 'utf8');
+    await client.query(newAgentMigrationSQL);
+    console.log('✓ New Agent System schema migration completed successfully');
+
   } catch (error) {
     console.error('Error running migrations:', error);
     throw error;

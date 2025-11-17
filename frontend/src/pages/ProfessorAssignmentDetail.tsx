@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast';
-import { professorAPI } from '../services/api';
+import { professorAPI, gradingAssistantAPI } from '../services/api';
 import { validateByType } from '../utils/fileValidation';
+import type { TentativeGrade, GradingRubric } from '../types/agenticai';
 import './ProfessorAssignmentDetail.css';
 
 interface Submission {
@@ -60,10 +61,24 @@ const ProfessorAssignmentDetail: React.FC = () => {
     points: 100
   });
 
+  // Rubric and grading assistant state
+  const [showRubricModal, setShowRubricModal] = useState(false);
+  const [rubric, setRubric] = useState<GradingRubric | null>(null);
+  const [rubricForm, setRubricForm] = useState({
+    rubricName: '',
+    criteria: [{ name: '', description: '', points: 0, excellent_description: '', good_description: '', fair_description: '', poor_description: '' }]
+  });
+  const [tentativeGrades, setTentativeGrades] = useState<{ [submissionId: number]: TentativeGrade }>({});
+  const [loadingTentativeGrade, setLoadingTentativeGrade] = useState<{ [submissionId: number]: boolean }>({});
+  const [showTentativeGradeModal, setShowTentativeGradeModal] = useState(false);
+  const [selectedTentativeGrade, setSelectedTentativeGrade] = useState<TentativeGrade | null>(null);
+  const [finalizingGrade, setFinalizingGrade] = useState(false);
+
   useEffect(() => {
     if (assignmentId) {
       loadAssignmentDetails();
       loadSubmissions();
+      loadRubric();
     }
   }, [assignmentId]);
 
@@ -95,9 +110,52 @@ const ProfessorAssignmentDetail: React.FC = () => {
   const loadSubmissions = async () => {
     try {
       const response = await professorAPI.getSubmissions(parseInt(assignmentId!));
-      setSubmissions(response.data.submissions || []);
+      const subs = response.data.submissions || [];
+      setSubmissions(subs);
+
+      // Load tentative grades for all submissions
+      subs.forEach((sub: Submission) => {
+        loadTentativeGrade(sub.id);
+      });
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Failed to load submissions', 'error');
+    }
+  };
+
+  const loadRubric = async () => {
+    try {
+      const response = await gradingAssistantAPI.getRubric(parseInt(assignmentId!));
+      setRubric(response.data.rubric);
+    } catch (error: any) {
+      // Rubric might not exist yet, which is okay
+      console.log('No rubric found:', error.response?.data?.error);
+    }
+  };
+
+  const loadTentativeGrade = async (submissionId: number) => {
+    try {
+      setLoadingTentativeGrade(prev => ({ ...prev, [submissionId]: true }));
+      const response = await gradingAssistantAPI.getTentativeGrade(submissionId);
+      if (response.data.tentativeGrade) {
+        setTentativeGrades(prev => ({ ...prev, [submissionId]: response.data.tentativeGrade }));
+      }
+    } catch (error: any) {
+      // Tentative grade might not exist yet
+      console.log(`No tentative grade for submission ${submissionId}`);
+    } finally {
+      setLoadingTentativeGrade(prev => ({ ...prev, [submissionId]: false }));
+    }
+  };
+
+  const handleGenerateTentativeGrade = async (submissionId: number) => {
+    try {
+      setLoadingTentativeGrade(prev => ({ ...prev, [submissionId]: true }));
+      await gradingAssistantAPI.generateTentativeGrade(submissionId);
+      showToast('Tentative grade generated successfully', 'success');
+      loadTentativeGrade(submissionId);
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to generate tentative grade', 'error');
+      setLoadingTentativeGrade(prev => ({ ...prev, [submissionId]: false }));
     }
   };
 
@@ -224,6 +282,125 @@ const ProfessorAssignmentDetail: React.FC = () => {
     }
   };
 
+  const openRubricModal = () => {
+    if (rubric) {
+      // Edit existing rubric
+      setRubricForm({
+        rubricName: rubric.rubric_name,
+        criteria: rubric.criteria.map(c => ({
+          name: c.name,
+          description: c.description,
+          points: c.points,
+          excellent_description: c.excellent_description || '',
+          good_description: c.good_description || '',
+          fair_description: c.fair_description || '',
+          poor_description: c.poor_description || ''
+        }))
+      });
+    } else {
+      // Create new rubric
+      setRubricForm({
+        rubricName: '',
+        criteria: [{ name: '', description: '', points: 0, excellent_description: '', good_description: '', fair_description: '', poor_description: '' }]
+      });
+    }
+    setShowRubricModal(true);
+  };
+
+  const handleAddCriterion = () => {
+    setRubricForm({
+      ...rubricForm,
+      criteria: [...rubricForm.criteria, { name: '', description: '', points: 0, excellent_description: '', good_description: '', fair_description: '', poor_description: '' }]
+    });
+  };
+
+  const handleRemoveCriterion = (index: number) => {
+    setRubricForm({
+      ...rubricForm,
+      criteria: rubricForm.criteria.filter((_, i) => i !== index)
+    });
+  };
+
+  const handleCriterionChange = (index: number, field: string, value: any) => {
+    const newCriteria = [...rubricForm.criteria];
+    newCriteria[index] = { ...newCriteria[index], [field]: value };
+    setRubricForm({ ...rubricForm, criteria: newCriteria });
+  };
+
+  const handleCreateRubric = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assignment) return;
+
+    // Validation
+    if (!rubricForm.rubricName.trim()) {
+      showToast('Please enter a rubric name', 'error');
+      return;
+    }
+
+    if (rubricForm.criteria.length === 0) {
+      showToast('Please add at least one criterion', 'error');
+      return;
+    }
+
+    for (let i = 0; i < rubricForm.criteria.length; i++) {
+      const criterion = rubricForm.criteria[i];
+      if (!criterion.name.trim() || !criterion.description.trim() || criterion.points <= 0) {
+        showToast(`Criterion ${i + 1}: Please fill in all required fields`, 'error');
+        return;
+      }
+    }
+
+    const totalPoints = rubricForm.criteria.reduce((sum, c) => sum + c.points, 0);
+
+    try {
+      await gradingAssistantAPI.createRubric({
+        assignmentId: assignment.id,
+        rubricName: rubricForm.rubricName,
+        criteria: rubricForm.criteria,
+        totalPoints
+      });
+      showToast('Rubric created successfully', 'success');
+      setShowRubricModal(false);
+      loadRubric();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to create rubric', 'error');
+    }
+  };
+
+  const openTentativeGradeModal = (tentativeGrade: TentativeGrade) => {
+    setSelectedTentativeGrade(tentativeGrade);
+    setShowTentativeGradeModal(true);
+  };
+
+  const handleFinalizeGrade = async (acceptAiGrade: boolean) => {
+    if (!selectedTentativeGrade) return;
+
+    const finalGrade = acceptAiGrade ? selectedTentativeGrade.tentative_grade : parseFloat(gradeForm.grade);
+    const feedback = gradeForm.feedback || selectedTentativeGrade.grading_rationale;
+
+    if (!acceptAiGrade && (isNaN(finalGrade) || finalGrade < 0 || finalGrade > (assignment?.points || 100))) {
+      showToast(`Grade must be between 0 and ${assignment?.points || 100}`, 'error');
+      return;
+    }
+
+    try {
+      setFinalizingGrade(true);
+      await gradingAssistantAPI.finalizeGrade(selectedTentativeGrade.id, {
+        finalGrade,
+        feedback
+      });
+      showToast('Grade finalized successfully', 'success');
+      setShowTentativeGradeModal(false);
+      setSelectedTentativeGrade(null);
+      setGradeForm({ grade: '', feedback: '' });
+      loadSubmissions();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to finalize grade', 'error');
+    } finally {
+      setFinalizingGrade(false);
+    }
+  };
+
   if (loading) {
     return <div className="loading">Loading assignment details...</div>;
   }
@@ -282,6 +459,26 @@ const ProfessorAssignmentDetail: React.FC = () => {
                 <p className="question-text">{assignment.question_text}</p>
               </div>
             )}
+
+            {/* Grading Rubric */}
+            <div className="info-block">
+              <div className="section-header">
+                <h2>Grading Rubric</h2>
+                <button onClick={openRubricModal} className="btn-secondary">
+                  {rubric ? 'View/Edit Rubric' : '+ Create Rubric'}
+                </button>
+              </div>
+
+              {rubric ? (
+                <div className="rubric-summary">
+                  <p><strong>{rubric.rubric_name}</strong></p>
+                  <p>Total Points: {rubric.total_points}</p>
+                  <p>{rubric.criteria.length} criteria</p>
+                </div>
+              ) : (
+                <p className="empty-message">No rubric created yet. Create one to enable AI-assisted grading.</p>
+              )}
+            </div>
 
             {/* Assignment Files */}
             <div className="info-block">
@@ -392,12 +589,44 @@ const ProfessorAssignmentDetail: React.FC = () => {
                       )}
                     </div>
 
+                    {/* Tentative Grade Display */}
+                    {tentativeGrades[submission.id] && !tentativeGrades[submission.id].is_final && submission.grade === null && (
+                      <div className="tentative-grade-preview">
+                        <div className="tentative-grade-header">
+                          <span>AI Preliminary Grade: {tentativeGrades[submission.id].tentative_grade}/{tentativeGrades[submission.id].max_points}</span>
+                          {tentativeGrades[submission.id].confidence_score && (
+                            <span className="confidence">
+                              (Confidence: {Math.round(tentativeGrades[submission.id].confidence_score * 100)}%)
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          className="btn-link"
+                          onClick={() => openTentativeGradeModal(tentativeGrades[submission.id])}
+                        >
+                          View Details & Finalize
+                        </button>
+                      </div>
+                    )}
+
                     <div className="submission-footer">
+                      {submission.grade === null && !tentativeGrades[submission.id] && !loadingTentativeGrade[submission.id] && (
+                        <button
+                          className="btn-secondary"
+                          onClick={() => handleGenerateTentativeGrade(submission.id)}
+                          style={{ marginRight: '10px' }}
+                        >
+                          Generate AI Grade
+                        </button>
+                      )}
+                      {loadingTentativeGrade[submission.id] && (
+                        <span style={{ marginRight: '10px' }}>Generating AI grade...</span>
+                      )}
                       <button
                         className="btn-primary"
                         onClick={() => openGradeModal(submission)}
                       >
-                        {submission.grade !== null ? 'Update Grade' : 'Grade Submission'}
+                        {submission.grade !== null ? 'Update Grade' : 'Grade Manually'}
                       </button>
                     </div>
                   </div>
@@ -514,6 +743,280 @@ const ProfessorAssignmentDetail: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Rubric Creation Modal */}
+      {showRubricModal && (
+        <div className="modal-overlay" onClick={() => setShowRubricModal(false)}>
+          <div className="modal-content rubric-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3>{rubric ? 'View/Edit Rubric' : 'Create Grading Rubric'}</h3>
+            <form onSubmit={handleCreateRubric}>
+              <div className="form-group">
+                <label>Rubric Name *</label>
+                <input
+                  type="text"
+                  value={rubricForm.rubricName}
+                  onChange={(e) => setRubricForm({ ...rubricForm, rubricName: e.target.value })}
+                  placeholder="e.g., Essay Grading Rubric"
+                  required
+                />
+              </div>
+
+              <div className="criteria-section">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                  <h4>Grading Criteria</h4>
+                  <button type="button" onClick={handleAddCriterion} className="btn-secondary">
+                    + Add Criterion
+                  </button>
+                </div>
+
+                {rubricForm.criteria.map((criterion, index) => (
+                  <div key={index} className="criterion-card" style={{ border: '1px solid #ddd', padding: '15px', marginBottom: '15px', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <h5>Criterion {index + 1}</h5>
+                      {rubricForm.criteria.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCriterion(index)}
+                          className="btn-delete-icon"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="form-group">
+                      <label>Name *</label>
+                      <input
+                        type="text"
+                        value={criterion.name}
+                        onChange={(e) => handleCriterionChange(index, 'name', e.target.value)}
+                        placeholder="e.g., Thesis Statement"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Description *</label>
+                      <textarea
+                        value={criterion.description}
+                        onChange={(e) => handleCriterionChange(index, 'description', e.target.value)}
+                        placeholder="What does this criterion assess?"
+                        rows={2}
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Points *</label>
+                      <input
+                        type="number"
+                        value={criterion.points}
+                        onChange={(e) => handleCriterionChange(index, 'points', parseInt(e.target.value) || 0)}
+                        min="0"
+                        required
+                      />
+                    </div>
+
+                    <details style={{ marginTop: '10px' }}>
+                      <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px' }}>
+                        Performance Level Descriptions (Optional)
+                      </summary>
+
+                      <div className="form-group">
+                        <label>Excellent</label>
+                        <textarea
+                          value={criterion.excellent_description}
+                          onChange={(e) => handleCriterionChange(index, 'excellent_description', e.target.value)}
+                          placeholder="What constitutes excellent performance?"
+                          rows={2}
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Good</label>
+                        <textarea
+                          value={criterion.good_description}
+                          onChange={(e) => handleCriterionChange(index, 'good_description', e.target.value)}
+                          placeholder="What constitutes good performance?"
+                          rows={2}
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Fair</label>
+                        <textarea
+                          value={criterion.fair_description}
+                          onChange={(e) => handleCriterionChange(index, 'fair_description', e.target.value)}
+                          placeholder="What constitutes fair performance?"
+                          rows={2}
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Poor</label>
+                        <textarea
+                          value={criterion.poor_description}
+                          onChange={(e) => handleCriterionChange(index, 'poor_description', e.target.value)}
+                          placeholder="What constitutes poor performance?"
+                          rows={2}
+                        />
+                      </div>
+                    </details>
+                  </div>
+                ))}
+
+                <div className="rubric-total" style={{ padding: '15px', background: '#f5f5f5', borderRadius: '8px', marginTop: '15px' }}>
+                  <strong>Total Points: {rubricForm.criteria.reduce((sum, c) => sum + c.points, 0)}</strong>
+                </div>
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: '20px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowRubricModal(false)}
+                  className="btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary">
+                  {rubric ? 'Update Rubric' : 'Create Rubric'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Tentative Grade Details Modal */}
+      {showTentativeGradeModal && selectedTentativeGrade && (
+        <div className="modal-overlay" onClick={() => setShowTentativeGradeModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3>AI-Generated Preliminary Grade</h3>
+
+            <div className="tentative-grade-details">
+              <div className="grade-summary" style={{ textAlign: 'center', padding: '20px', background: '#f0f9ff', borderRadius: '8px', marginBottom: '20px' }}>
+                <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#0066cc' }}>
+                  {selectedTentativeGrade.tentative_grade}/{selectedTentativeGrade.max_points}
+                </div>
+                <div style={{ fontSize: '18px', color: '#666', marginTop: '5px' }}>
+                  {Math.round((selectedTentativeGrade.tentative_grade / selectedTentativeGrade.max_points) * 100)}%
+                </div>
+                {selectedTentativeGrade.confidence_score && (
+                  <div style={{ marginTop: '10px', color: '#888' }}>
+                    AI Confidence: {Math.round(selectedTentativeGrade.confidence_score * 100)}%
+                  </div>
+                )}
+              </div>
+
+              {selectedTentativeGrade.rubric_breakdown && selectedTentativeGrade.rubric_breakdown.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4>Rubric Breakdown</h4>
+                  {selectedTentativeGrade.rubric_breakdown.map((item, index) => (
+                    <div key={index} style={{ padding: '10px', border: '1px solid #e0e0e0', borderRadius: '5px', marginBottom: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', marginBottom: '5px' }}>
+                        <span>{item.criterion}</span>
+                        <span>{item.points_awarded}/{item.points_possible} pts</span>
+                      </div>
+                      <div style={{ fontSize: '14px', color: '#666' }}>{item.justification}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {selectedTentativeGrade.strengths && selectedTentativeGrade.strengths.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ color: '#10b981' }}>Strengths</h4>
+                  <ul>
+                    {selectedTentativeGrade.strengths.map((strength, index) => (
+                      <li key={index} style={{ color: '#059669', marginBottom: '5px' }}>{strength}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {selectedTentativeGrade.areas_for_improvement && selectedTentativeGrade.areas_for_improvement.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ color: '#f59e0b' }}>Areas for Improvement</h4>
+                  <ul>
+                    {selectedTentativeGrade.areas_for_improvement.map((improvement, index) => (
+                      <li key={index} style={{ color: '#d97706', marginBottom: '5px' }}>{improvement}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {selectedTentativeGrade.grading_rationale && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4>Overall Feedback</h4>
+                  <p style={{ padding: '10px', background: '#f9fafb', borderRadius: '5px' }}>
+                    {selectedTentativeGrade.grading_rationale}
+                  </p>
+                </div>
+              )}
+
+              <div style={{ borderTop: '2px solid #e0e0e0', paddingTop: '20px', marginTop: '20px' }}>
+                <h4>Finalize Grade</h4>
+                <p style={{ color: '#666', fontSize: '14px', marginBottom: '15px' }}>
+                  You can accept the AI-generated grade or override it with your own assessment.
+                </p>
+
+                <div className="form-group">
+                  <label>Override Grade (Optional)</label>
+                  <input
+                    type="number"
+                    value={gradeForm.grade}
+                    onChange={(e) => setGradeForm({ ...gradeForm, grade: e.target.value })}
+                    placeholder={`Leave empty to use AI grade (${selectedTentativeGrade.tentative_grade})`}
+                    min="0"
+                    max={selectedTentativeGrade.max_points}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Additional Feedback (Optional)</label>
+                  <textarea
+                    value={gradeForm.feedback}
+                    onChange={(e) => setGradeForm({ ...gradeForm, feedback: e.target.value })}
+                    placeholder="Add your own feedback or leave empty to use AI feedback"
+                    rows={4}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: '20px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTentativeGradeModal(false);
+                  setGradeForm({ grade: '', feedback: '' });
+                }}
+                className="btn-secondary"
+                disabled={finalizingGrade}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleFinalizeGrade(true)}
+                className="btn-primary"
+                disabled={finalizingGrade}
+                style={{ marginRight: '10px' }}
+              >
+                {finalizingGrade ? 'Finalizing...' : 'Accept AI Grade'}
+              </button>
+              {gradeForm.grade && (
+                <button
+                  onClick={() => handleFinalizeGrade(false)}
+                  className="btn-primary"
+                  disabled={finalizingGrade}
+                >
+                  {finalizingGrade ? 'Finalizing...' : 'Finalize with Override'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -1,6 +1,10 @@
 import express, { Request, Response } from 'express';
 import { pool } from '../config/database';
 import { authenticate, authorize, requireActiveStatus } from '../middleware/auth';
+import { SubjectChatbotAgent } from '../services/agents/SubjectChatbotAgent';
+import { EnhancedIntegrityVerificationAgent } from '../services/agents/EnhancedIntegrityVerificationAgent';
+import { AgentMessage } from '../services/agents/newAgentTypes';
+import { AIContext, AIMessage } from '../services/ai/types';
 
 const router = express.Router();
 
@@ -8,22 +12,6 @@ const router = express.Router();
 router.use(authenticate);
 router.use(authorize('student', 'professor', 'root'));
 router.use(requireActiveStatus);
-
-// Helper function to simulate AI response (replace with actual AI integration later)
-const generateAIResponse = async (message: string, courseId: number, sessionHistory: any[]): Promise<string> => {
-  // This is a placeholder. Later, integrate with actual AI service (OpenAI, Anthropic, etc.)
-  const responses = [
-    `I understand you're asking about "${message}". Let me help you with that concept from your course materials.`,
-    `Great question! Based on your course content, here's what I can explain: ${message}`,
-    `Let me break this down for you. Regarding "${message}", here are the key points you should know...`,
-    `That's an interesting topic! From your enrolled course materials, I can provide this explanation about ${message}...`,
-  ];
-
-  // Simulate thinking delay
-  await new Promise(resolve => setTimeout(resolve, 500));
-
-  return responses[Math.floor(Math.random() * responses.length)];
-};
 
 // Get all courses for chatbot selection (based on user role)
 router.get('/courses', async (req: Request, res: Response) => {
@@ -382,21 +370,71 @@ router.post('/sessions/:sessionId/messages', async (req: Request, res: Response)
     const historyResult = await pool.query(
       `SELECT sender_type, content FROM chat_messages
        WHERE session_id = $1 AND is_deleted = false
-       ORDER BY created_at DESC
-       LIMIT 10`,
+       ORDER BY created_at ASC
+       LIMIT 20`,
       [sessionId]
     );
 
-    // Generate AI response (placeholder - replace with actual AI integration)
-    const aiResponse = await generateAIResponse(content, courseId, historyResult.rows);
-
-    // Save AI response
-    const agentMessage = await pool.query(
-      `INSERT INTO chat_messages (session_id, sender_type, content)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
-      [sessionId, 'agent', aiResponse]
+    // Get course details
+    const courseResult = await pool.query(
+      'SELECT id, title, description FROM courses WHERE id = $1',
+      [courseId]
     );
+    const course = courseResult.rows[0];
+
+    // Build AI context from conversation history
+    const conversationHistory: AIMessage[] = historyResult.rows.map(row => ({
+      role: (row.sender_type === 'student' ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: row.content
+    }));
+
+    const aiContext: AIContext = {
+      conversationHistory,
+      courseMetadata: {
+        id: course.id,
+        title: course.title,
+        description: course.description
+      }
+    };
+
+    // Create agent message for the Subject Chatbot
+    const agentMessage: AgentMessage = {
+      content,
+      userId,
+      role: 'student',
+      sessionId: parseInt(sessionId),
+      messageId: studentMessage.rows[0].id,
+      timestamp: new Date()
+    };
+
+    // Generate AI response using Subject Chatbot Agent
+    const chatbot = new SubjectChatbotAgent();
+    const agentResponse = await chatbot.execute(agentMessage, aiContext);
+
+    // Save AI response with metadata
+    const agentMessageResult = await pool.query(
+      `INSERT INTO chat_messages (session_id, sender_type, content, message_metadata)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [sessionId, 'agent', agentResponse.content, JSON.stringify({
+        confidence: agentResponse.confidence,
+        sourcesCount: agentResponse.sources?.length || 0
+      })]
+    );
+
+    const savedAgentMessageId = agentMessageResult.rows[0].id;
+
+    // Run ENHANCED Integrity Verification Agent in background (don't block response)
+    // This will independently verify sources with web crawling and calculate trust score
+    const verifier = new EnhancedIntegrityVerificationAgent();
+    verifier.verifyResponse(
+      savedAgentMessageId,
+      agentResponse.content,
+      agentResponse.sources || [],
+      courseId
+    ).catch(err => {
+      console.error('Error in enhanced integrity verification:', err);
+    });
 
     // Update session last activity
     await pool.query(
@@ -407,7 +445,11 @@ router.post('/sessions/:sessionId/messages', async (req: Request, res: Response)
     res.json({
       message: 'Message sent successfully',
       studentMessage: studentMessage.rows[0],
-      agentMessage: agentMessage.rows[0]
+      agentMessage: {
+        ...agentMessageResult.rows[0],
+        sources: agentResponse.sources,
+        confidence: agentResponse.confidence
+      }
     });
   } catch (error) {
     console.error('Error sending message:', error);
@@ -626,33 +668,164 @@ router.post('/sessions/:sessionId/regenerate', async (req: Request, res: Respons
     const historyResult = await pool.query(
       `SELECT sender_type, content FROM chat_messages
        WHERE session_id = $1 AND is_deleted = false
-       ORDER BY created_at DESC
-       LIMIT 10`,
+       ORDER BY created_at ASC
+       LIMIT 20`,
       [sessionId]
     );
 
-    // Generate new AI response
-    const aiResponse = await generateAIResponse(
-      lastStudentMessage.rows[0].content,
-      courseId,
-      historyResult.rows
+    // Get course details
+    const courseResult = await pool.query(
+      'SELECT id, title, description FROM courses WHERE id = $1',
+      [courseId]
     );
+    const course = courseResult.rows[0];
+
+    // Build AI context
+    const conversationHistory: AIMessage[] = historyResult.rows.map(row => ({
+      role: (row.sender_type === 'student' ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: row.content
+    }));
+
+    const aiContext: AIContext = {
+      conversationHistory,
+      courseMetadata: {
+        id: course.id,
+        title: course.title,
+        description: course.description
+      }
+    };
+
+    // Create agent message
+    const agentMessage: AgentMessage = {
+      content: lastStudentMessage.rows[0].content,
+      userId,
+      role: 'student',
+      sessionId: parseInt(sessionId),
+      timestamp: new Date()
+    };
+
+    // Generate new AI response using Subject Chatbot
+    const chatbot = new SubjectChatbotAgent();
+    const agentResponse = await chatbot.execute(agentMessage, aiContext);
 
     // Save new AI response
-    const agentMessage = await pool.query(
+    const newAgentMessageResult = await pool.query(
       `INSERT INTO chat_messages (session_id, sender_type, content, message_metadata)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [sessionId, 'agent', aiResponse, JSON.stringify({ regenerated: true })]
+      [sessionId, 'agent', agentResponse.content, JSON.stringify({
+        regenerated: true,
+        confidence: agentResponse.confidence,
+        sourcesCount: agentResponse.sources?.length || 0
+      })]
     );
+
+    const savedAgentMessageId = newAgentMessageResult.rows[0].id;
+
+    // Run ENHANCED Integrity Verification in background
+    const verifier = new EnhancedIntegrityVerificationAgent();
+    verifier.verifyResponse(
+      savedAgentMessageId,
+      agentResponse.content,
+      agentResponse.sources || [],
+      courseId
+    ).catch(err => {
+      console.error('Error in enhanced integrity verification:', err);
+    });
 
     res.json({
       message: 'Response regenerated successfully',
-      agentMessage: agentMessage.rows[0]
+      agentMessage: {
+        ...newAgentMessageResult.rows[0],
+        sources: agentResponse.sources,
+        confidence: agentResponse.confidence
+      }
     });
   } catch (error) {
     console.error('Error regenerating response:', error);
     res.status(500).json({ error: 'Failed to regenerate response' });
+  }
+});
+
+// Get trust score for a message
+router.get('/messages/:messageId/trust-score', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { messageId } = req.params;
+
+    // Verify user has access to this message
+    const messageCheck = await pool.query(
+      `SELECT cm.id
+       FROM chat_messages cm
+       JOIN chat_sessions cs ON cm.session_id = cs.id
+       WHERE cm.id = $1 AND cs.student_id = $2`,
+      [messageId, userId]
+    );
+
+    if (messageCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Access denied to this message' });
+    }
+
+    // Get trust score
+    const trustScoreResult = await pool.query(
+      'SELECT * FROM message_trust_scores WHERE message_id = $1',
+      [messageId]
+    );
+
+    if (trustScoreResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Trust score not yet calculated' });
+    }
+
+    res.json({
+      message: 'Trust score retrieved successfully',
+      trustScore: trustScoreResult.rows[0]
+    });
+  } catch (error) {
+    console.error('Error fetching trust score:', error);
+    res.status(500).json({ error: 'Failed to fetch trust score' });
+  }
+});
+
+// Get sources for a message
+router.get('/messages/:messageId/sources', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { messageId } = req.params;
+
+    // Verify user has access to this message
+    const messageCheck = await pool.query(
+      `SELECT cm.id
+       FROM chat_messages cm
+       JOIN chat_sessions cs ON cm.session_id = cs.id
+       WHERE cm.id = $1 AND cs.student_id = $2`,
+      [messageId, userId]
+    );
+
+    if (messageCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Access denied to this message' });
+    }
+
+    // Get sources
+    const sourcesResult = await pool.query(
+      'SELECT * FROM response_sources WHERE message_id = $1 ORDER BY relevance_score DESC',
+      [messageId]
+    );
+
+    res.json({
+      message: 'Sources retrieved successfully',
+      sources: sourcesResult.rows
+    });
+  } catch (error) {
+    console.error('Error fetching sources:', error);
+    res.status(500).json({ error: 'Failed to fetch sources' });
   }
 });
 

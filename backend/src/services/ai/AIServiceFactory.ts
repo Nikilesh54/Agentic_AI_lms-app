@@ -1,5 +1,6 @@
 import { IAIService, AIServiceConfig } from './types';
 import { MockAIService } from './providers/MockAIService';
+import { GeminiAIService } from './providers/GeminiAIService';
 // Future imports:
 // import { OpenAIService } from './providers/OpenAIService';
 // import { AnthropicService } from './providers/AnthropicService';
@@ -29,6 +30,9 @@ export class AIServiceFactory {
       case 'mock':
         return new MockAIService(config);
 
+      case 'gemini':
+        return new GeminiAIService(config);
+
       // Future implementations:
       // case 'openai':
       //   return new OpenAIService(config);
@@ -54,11 +58,11 @@ export class AIServiceFactory {
    */
   private static getDefaultConfig(): AIServiceConfig {
     return {
-      provider: (process.env.AI_PROVIDER as any) || 'mock',
-      apiKey: process.env.AI_API_KEY,
-      model: process.env.AI_MODEL || 'gpt-4',
+      provider: (process.env.AI_PROVIDER as any) || 'gemini',
+      apiKey: process.env.GOOGLE_AI_API_KEY || process.env.AI_API_KEY,
+      model: process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.0-flash-exp',
       temperature: parseFloat(process.env.AI_TEMPERATURE || '0.7'),
-      maxTokens: parseInt(process.env.AI_MAX_TOKENS || '2000'),
+      maxTokens: parseInt(process.env.AI_MAX_TOKENS || '2048'),
       streamingEnabled: process.env.AI_STREAMING_ENABLED === 'true',
     };
   }
