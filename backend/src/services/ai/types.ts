@@ -45,6 +45,7 @@ export interface AIContext {
   courseMetadata?: any;
   instructorPreferences?: any;
   toolResults?: ToolResult[];
+  webSearchResults?: any[];
 }
 
 export interface Intent {

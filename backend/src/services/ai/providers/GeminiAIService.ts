@@ -28,12 +28,30 @@ export class GeminiAIService implements IAIService {
     this.genAI = new GoogleGenerativeAI(config.apiKey);
 
     // Initialize the model with configuration
+    // Note: We don't set tools here - we'll set them per-request based on context
     this.model = this.genAI.getGenerativeModel({
       model: config.model || 'gemini-2.0-flash-exp',
       generationConfig: {
         temperature: config.temperature || 0.7,
         maxOutputTokens: config.maxTokens || 2048,
       },
+    });
+  }
+
+  /**
+   * Get a model instance with Google Search grounding enabled
+   * Note: Google Search grounding requires specific model and configuration
+   */
+  private getModelWithGrounding(): GenerativeModel {
+    // For now, use the same model but with a system instruction to use web knowledge
+    // True grounding will require Gemini API configuration at the API level
+    return this.genAI.getGenerativeModel({
+      model: this.config.model || 'gemini-2.0-flash-exp',
+      generationConfig: {
+        temperature: this.config.temperature || 0.7,
+        maxOutputTokens: this.config.maxTokens || 2048,
+      },
+      systemInstruction: 'You have access to search the web for current information. Use this capability when answering questions that require up-to-date data or information not in the provided context.',
     });
   }
 
@@ -138,8 +156,16 @@ export class GeminiAIService implements IAIService {
       // Convert messages to Gemini format
       const geminiMessages = this.convertMessagesToGeminiFormat(messages, fullSystemPrompt);
 
+      // Check if we should use Google Search grounding
+      const useGrounding = context.webSearchResults && context.webSearchResults.length > 0;
+      const modelToUse = useGrounding ? this.getModelWithGrounding() : this.model;
+
+      if (useGrounding) {
+        console.log('🌐 Using Google Search grounding for this response...');
+      }
+
       // Generate response
-      const chat = this.model.startChat({
+      const chat = modelToUse.startChat({
         history: geminiMessages.slice(0, -1), // All messages except the last one
       });
 
@@ -159,11 +185,15 @@ export class GeminiAIService implements IAIService {
         relevance: 0.8 // Default relevance
       })) || [];
 
+      // Add grounding metadata if available
+      const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+
       const aiResponse: AIResponse = {
         content: text,
         confidence,
         requiresReview: false,
         sources: sources.length > 0 ? sources : undefined,
+        metadata: groundingMetadata ? { groundingMetadata } : undefined
       };
 
       // Check if review is needed

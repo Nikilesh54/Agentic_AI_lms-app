@@ -2,6 +2,7 @@ import { SimpleBaseAgent, AgentMetadata, AgentMessage, AgentResponse, ResponseSo
 import { AIContext, AIMessage, AIResponse } from '../ai/types';
 import { getAIService } from '../ai/AIServiceFactory';
 import { pool } from '../../config/database';
+import { WebSearchService } from '../search/WebSearchService';
 
 /**
  * Subject-Specific Chatbot Agent
@@ -43,10 +44,16 @@ export class SubjectChatbotAgent extends SimpleBaseAgent {
 
 Your responsibilities:
 1. Answer student questions accurately using course materials as the primary source
-2. Provide clear, educational explanations that promote learning
-3. Generate practice questions and quizzes when requested
-4. Help students understand concepts without giving direct answers to homework
-5. **CRITICALLY IMPORTANT: ALWAYS provide source attribution for EVERY response**
+2. Use web search results ONLY when course materials don't cover the topic
+3. Provide clear, educational explanations that promote learning
+4. Generate practice questions and quizzes when requested
+5. Help students understand concepts without giving direct answers to homework
+6. **CRITICALLY IMPORTANT: ALWAYS provide source attribution for EVERY response**
+
+SOURCE PRIORITY:
+1. **First Priority**: Course materials uploaded by the professor
+2. **Second Priority**: Web search results (only if course materials are insufficient)
+3. If web search results are provided, they will appear in the context section
 
 SOURCE ATTRIBUTION REQUIREMENTS (MANDATORY):
 For EVERY piece of information you provide, you MUST cite the source:
@@ -57,7 +64,11 @@ For EVERY piece of information you provide, you MUST cite the source:
 - Relevant excerpt (if applicable)
 - Format: "[Source: {file_name}, Section {section}, Page {page}]"
 
-**For Internet Sources:**
+**For Web Search Results:**
+- Use the exact title and URL from the web search results provided
+- Format: "[Source: {title}, URL: {url}]"
+
+**For Internet Sources (when citing manually):**
 - Full URL
 - Source name/publication
 - Date accessed (use current date)
@@ -70,8 +81,9 @@ For EVERY piece of information you provide, you MUST cite the source:
 
 CRITICAL RULES:
 - NEVER provide information without citing the source
-- If you don't have a source, explicitly state: "I don't have course materials on this topic. Would you like me to search for external resources?"
-- Prefer course materials over internet sources
+- ALWAYS prefer course materials over web sources when both are available
+- When web search results are provided in the context, use them to supplement your answer
+- Clearly distinguish between course materials and web sources in your citations
 - When generating quizzes, cite which materials the questions are based on
 - Do NOT give direct answers to homework or assignment questions
 - Focus on guiding students to understand concepts
@@ -80,9 +92,10 @@ RESPONSE FORMAT:
 Every response should include:
 1. The answer/explanation
 2. Source citations (inline or at the end)
-3. Relevant examples or practice questions (optional)
+3. Clear indication of whether you're using course materials or web sources
+4. Relevant examples or practice questions (optional)
 
-Example response:
+Example response with course materials:
 "Neural networks are composed of interconnected layers of nodes that process information. [Source: Deep Learning Basics.pdf, Section 2.1, Page 15]
 
 The key components include:
@@ -90,7 +103,16 @@ The key components include:
 - Hidden layers: Process and transform the data [Source: Deep Learning Basics.pdf, Page 17-18]
 - Output layer: Produces the final result [Source: Deep Learning Basics.pdf, Page 19]
 
-Would you like me to generate practice questions on this topic?"`;
+Would you like me to generate practice questions on this topic?"
+
+Example response with web sources:
+"I don't have specific course materials on this topic, but I found relevant information from external sources.
+
+Neural networks are computational models inspired by the human brain. [Source: Introduction to Neural Networks, URL: https://example.com/neural-nets]
+
+The basic architecture includes interconnected nodes that process information in layers. [Source: Machine Learning Fundamentals, URL: https://example.com/ml-basics]
+
+Would you like me to look for more specific resources, or would you prefer to ask your professor for course materials on this topic?"`;
   }
 
   /**
@@ -113,10 +135,29 @@ Would you like me to generate practice questions on this topic?"`;
         5 // limit to top 5 most relevant materials
       );
 
-      // Build enhanced context with course materials
+      // Check if we should search the web (if course materials are insufficient)
+      const webSearchService = new WebSearchService();
+      const shouldSearchWeb = WebSearchService.shouldSearchWeb(relevantMaterials, message.content);
+
+      let webSearchResults: any[] = [];
+      let webSearchContext = '';
+
+      if (shouldSearchWeb) {
+        console.log('📡 Course materials insufficient, searching the web...');
+        webSearchResults = await webSearchService.searchWithContent(message.content, {
+          maxResults: 3,
+          safeSearch: true
+        });
+
+        webSearchContext = WebSearchService.formatResultsForAI(webSearchResults);
+        console.log(`✅ Found ${webSearchResults.length} web results`);
+      }
+
+      // Build enhanced context with course materials AND web search results
       const enhancedContext: AIContext = {
         ...context,
-        relevantMaterials
+        relevantMaterials,
+        webSearchResults: webSearchResults.length > 0 ? webSearchResults : undefined
       };
 
       // Build conversation history
@@ -132,6 +173,22 @@ Would you like me to generate practice questions on this topic?"`;
         }
       ];
 
+      // Add web search instruction if course materials are insufficient
+      if (webSearchResults.length > 0) {
+        const webSearchInstruction = `\n\n**IMPORTANT WEB SEARCH INSTRUCTION**:
+Since course materials don't have sufficient information on this topic, you should search the web for current, accurate information to answer this question.
+
+YOU HAVE PERMISSION AND ABILITY TO:
+- Search Google for relevant, up-to-date information
+- Access current websites and articles
+- Provide citations with URLs from your web search
+
+Please provide a comprehensive answer using web sources with proper citations in the format:
+[Source: {website/article name}, URL: {url}]`;
+
+        messages[messages.length - 1].content = `${message.content}${webSearchInstruction}`;
+      }
+
       // Generate AI response
       const aiService = getAIService();
       const aiResponse: AIResponse = await aiService.generateResponse(
@@ -140,8 +197,8 @@ Would you like me to generate practice questions on this topic?"`;
         this.metadata.systemPrompt
       );
 
-      // Extract sources from the response
-      const sources = this.extractSources(aiResponse.content, relevantMaterials);
+      // Extract sources from the response (including web sources)
+      const sources = this.extractSources(aiResponse.content, relevantMaterials, webSearchResults);
 
       // Store sources in database
       if (message.sessionId && message.messageId) {
@@ -155,8 +212,8 @@ Would you like me to generate practice questions on this topic?"`;
         message.userId,
         courseId,
         message.sessionId || null,
-        { question: message.content },
-        { answer: aiResponse.content, sourcesCount: sources.length },
+        { question: message.content, webSearchUsed: shouldSearchWeb },
+        { answer: aiResponse.content, sourcesCount: sources.length, webResultsCount: webSearchResults.length },
         aiResponse.confidence || 0.8,
         executionTime
       );
@@ -168,7 +225,9 @@ Would you like me to generate practice questions on this topic?"`;
         sources: sources,
         metadata: {
           sourcesProvided: sources.length,
-          materialsSearched: relevantMaterials.length
+          materialsSearched: relevantMaterials.length,
+          webSearchUsed: shouldSearchWeb,
+          webResultsFound: webSearchResults.length
         }
       };
 
@@ -247,7 +306,8 @@ Would you like me to generate practice questions on this topic?"`;
    */
   private extractSources(
     content: string,
-    courseMaterials: CourseMaterial[]
+    courseMaterials: CourseMaterial[],
+    webSearchResults: any[] = []
   ): ResponseSource[] {
     const sources: ResponseSource[] = [];
 
@@ -267,7 +327,27 @@ Would you like me to generate practice questions on this topic?"`;
       }
     });
 
-    // Extract internet sources (URLs)
+    // Extract internet sources from web search results
+    webSearchResults.forEach(result => {
+      // Check if this web result is referenced in the response
+      const isReferenced = content.includes(result.title) ||
+                          (result.url && content.includes(result.url)) ||
+                          content.toLowerCase().includes(result.snippet.toLowerCase().substring(0, 50));
+
+      if (isReferenced && result.url) {
+        sources.push({
+          source_type: 'internet',
+          source_id: null,
+          source_name: result.title,
+          source_url: result.url,
+          source_excerpt: result.snippet,
+          page_number: null,
+          relevance_score: result.relevanceScore || 0.7
+        });
+      }
+    });
+
+    // Extract internet sources from citation format in response (URLs)
     const urlRegex = /\[Source:.*?URL:\s*(https?:\/\/[^\s\]]+).*?\]/g;
     let urlMatch;
     while ((urlMatch = urlRegex.exec(content)) !== null) {
@@ -275,15 +355,19 @@ Would you like me to generate practice questions on this topic?"`;
       const sourceNameMatch = content.match(/\[Source:\s*([^,]+),\s*URL:/);
       const sourceName = sourceNameMatch ? sourceNameMatch[1].trim() : 'External Source';
 
-      sources.push({
-        source_type: 'internet',
-        source_id: null,
-        source_name: sourceName,
-        source_url: url,
-        source_excerpt: null,
-        page_number: null,
-        relevance_score: 0.7
-      });
+      // Avoid duplicates
+      const alreadyAdded = sources.some(s => s.source_url === url);
+      if (!alreadyAdded) {
+        sources.push({
+          source_type: 'internet',
+          source_id: null,
+          source_name: sourceName,
+          source_url: url,
+          source_excerpt: null,
+          page_number: null,
+          relevance_score: 0.7
+        });
+      }
     }
 
     return sources;

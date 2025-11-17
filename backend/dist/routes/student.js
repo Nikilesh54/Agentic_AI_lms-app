@@ -334,7 +334,7 @@ router.get('/assignments/:assignmentId', async (req, res) => {
     }
 });
 // Submit assignment
-router.post('/assignments/:assignmentId/submit', upload_1.uploadMultipleFiles, upload_1.handleMulterError, async (req, res) => {
+router.post('/assignments/:assignmentId/submit', upload_1.uploadSubmissionFiles, upload_1.validateSubmissionSize, upload_1.handleMulterError, async (req, res) => {
     const client = await database_1.pool.connect();
     try {
         const { assignmentId } = req.params;

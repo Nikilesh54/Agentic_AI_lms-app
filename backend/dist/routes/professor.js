@@ -351,7 +351,7 @@ router.delete('/announcements/:id', async (req, res) => {
 });
 // ========== COURSE MATERIALS ENDPOINTS ==========
 // Upload course materials
-router.post('/materials', upload_1.uploadMultipleFiles, upload_1.handleMulterError, async (req, res) => {
+router.post('/materials', upload_1.uploadCourseMaterials, upload_1.handleMulterError, async (req, res) => {
     const client = await database_1.pool.connect();
     try {
         const files = req.files;
@@ -487,7 +487,7 @@ router.get('/materials/:id/download', async (req, res) => {
 });
 // ========== ASSIGNMENT FILES ENDPOINTS ==========
 // Upload files to an assignment
-router.post('/assignments/:assignmentId/files', upload_1.uploadMultipleFiles, upload_1.handleMulterError, async (req, res) => {
+router.post('/assignments/:assignmentId/files', upload_1.uploadAssignmentFiles, upload_1.handleMulterError, async (req, res) => {
     const client = await database_1.pool.connect();
     try {
         const { assignmentId } = req.params;
