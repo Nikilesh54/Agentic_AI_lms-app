@@ -2,7 +2,9 @@ import express, { Request, Response } from 'express';
 import { pool } from '../config/database';
 import { authenticate, authorize, requireApprovedProfessor } from '../middleware/auth';
 import { uploadCourseMaterials, uploadAssignmentFiles, handleMulterError } from '../middleware/upload';
-import { uploadFile, deleteFile, generateSignedUrl } from '../config/storage';
+import { uploadFile, deleteFile, generateSignedUrl, downloadFile } from '../config/storage';
+import { extractTextFromFile } from '../services/documentProcessor';
+import { generateEmbeddings, embeddingToPostgresVector } from '../services/embeddingService';
 
 const router = express.Router();
 
@@ -517,6 +519,100 @@ router.post('/materials', uploadCourseMaterials, handleMulterError, async (req: 
          RETURNING *`,
         [courseId, uploadResult.fileName, uploadResult.filePath, uploadResult.fileSize, file.mimetype, req.user!.userId]
       );
+
+      const materialId = result.rows[0].id;
+
+      // Extract text content from the uploaded file
+      try {
+        console.log(`Extracting text from ${file.originalname}...`);
+        const processedDoc = await extractTextFromFile(
+          file.buffer,
+          file.originalname,
+          file.mimetype
+        );
+
+        // Save extracted content to course_material_content table
+        await client.query(
+          `INSERT INTO course_material_content (material_id, content_text, content_chunks, metadata)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (material_id) DO UPDATE
+           SET content_text = EXCLUDED.content_text,
+               content_chunks = EXCLUDED.content_chunks,
+               metadata = EXCLUDED.metadata,
+               last_indexed_at = CURRENT_TIMESTAMP`,
+          [
+            materialId,
+            processedDoc.content_text,
+            JSON.stringify(processedDoc.content_chunks),
+            JSON.stringify(processedDoc.metadata)
+          ]
+        );
+
+        console.log(`✓ Extracted ${processedDoc.content_chunks.length} chunks from ${file.originalname}`);
+
+        // Generate embeddings for each chunk (only if extraction was successful)
+        if (processedDoc.content_chunks.length > 0 && processedDoc.content_text.trim().length > 0) {
+          try {
+            console.log(`Generating embeddings for ${processedDoc.content_chunks.length} chunks...`);
+
+            // Extract chunk texts for embedding generation
+            const chunkTexts = processedDoc.content_chunks.map(chunk => chunk.text);
+
+            // Generate embeddings in batches
+            const embeddings = await generateEmbeddings(chunkTexts, 5);
+
+            // Store embeddings in database
+            for (let i = 0; i < processedDoc.content_chunks.length; i++) {
+              const chunk = processedDoc.content_chunks[i];
+              const embedding = embeddings[i];
+
+              await client.query(
+                `INSERT INTO course_material_embeddings
+                 (material_id, chunk_id, chunk_text, chunk_metadata, embedding)
+                 VALUES ($1, $2, $3, $4, $5::vector)
+                 ON CONFLICT (material_id, chunk_id) DO UPDATE
+                 SET chunk_text = EXCLUDED.chunk_text,
+                     chunk_metadata = EXCLUDED.chunk_metadata,
+                     embedding = EXCLUDED.embedding,
+                     created_at = CURRENT_TIMESTAMP`,
+                [
+                  materialId,
+                  chunk.chunk_id,
+                  chunk.text,
+                  JSON.stringify(chunk.metadata),
+                  embeddingToPostgresVector(embedding)
+                ]
+              );
+            }
+
+            console.log(`✓ Generated and stored ${embeddings.length} embeddings for ${file.originalname}`);
+          } catch (embeddingError) {
+            console.error(`Error generating embeddings for ${file.originalname}:`, embeddingError);
+            // Continue even if embedding generation fails
+            // The text is still stored, embeddings can be generated later via batch script
+          }
+        }
+      } catch (extractionError) {
+        console.error(`Error extracting text from ${file.originalname}:`, extractionError);
+        // Continue with upload even if extraction fails
+        // Save error information to content table
+        await client.query(
+          `INSERT INTO course_material_content (material_id, content_text, content_chunks, metadata)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (material_id) DO UPDATE
+           SET metadata = EXCLUDED.metadata`,
+          [
+            materialId,
+            '',
+            JSON.stringify([]),
+            JSON.stringify({
+              extraction_method: 'failed',
+              extraction_date: new Date().toISOString(),
+              error: extractionError instanceof Error ? extractionError.message : 'Unknown error'
+            })
+          ]
+        );
+      }
 
       uploadedMaterials.push(result.rows[0]);
     }

@@ -33,28 +33,29 @@ export class EnhancedIntegrityVerificationAgent extends SimpleBaseAgent {
   };
 
   private getSystemPrompt(): string {
-    return `You are an Integrity Verification Agent with a critical mission: INDEPENDENTLY verify chatbot responses.
+    return `You are an Integrity Verification Agent. Your job is to OBJECTIVELY verify chatbot responses against source materials.
 
 Your responsibilities:
-1. NEVER trust the chatbot's claims - verify everything
-2. Fetch and analyze actual source content
-3. Compare what the chatbot said vs. what sources actually say
-4. Detect hallucinations, misquotes, and incorrect citations
+1. Compare what the chatbot said against the actual source content provided
+2. Look for the information in the source - it may be worded slightly differently due to PDF extraction
+3. Account for formatting differences (extra spaces, line breaks, etc.) from PDF text extraction
+4. Be fair and objective - if the information is present, acknowledge it
 5. Provide evidence-based trust scores
 
 VERIFICATION PROCESS:
 1. For each claimed source, you will receive:
    - What the chatbot claimed
-   - The ACTUAL content from the source (I fetched it)
-2. Compare them and detect discrepancies
-3. Assign trust scores based on evidence
+   - The ACTUAL content from the source (I fetched it from the database)
+2. CAREFULLY search for the claimed information in the actual content
+3. Remember: PDF text extraction may add extra spaces or line breaks
+4. If the MEANING is present, even with different formatting, that's a match
 
 TRUST SCORING (Evidence-Based):
-- 90-100: Direct quote, exact match with source
-- 70-89: Accurate paraphrase, preserves meaning
-- 50-69: Partially accurate, some interpretation added
-- 30-49: Significant discrepancies or weak sources
-- 0-29: Hallucinated, contradicts source, or no evidence
+- 90-100: Information found in source (direct quote or same meaning)
+- 70-89: Accurate paraphrase, preserves core information
+- 50-69: Partially accurate, some details differ
+- 30-49: Significant discrepancies between claim and source
+- 0-29: Information completely absent from source or contradicts it
 
 Output JSON format:
 {
@@ -209,50 +210,88 @@ Output JSON format:
 
   /**
    * Verify course material by fetching actual content from database
+   * IMPROVED: Fetches the actual chunks that were used, not just full content
    */
   private async verifyCourseMaterial(
     source: ResponseSource,
     courseId: number
   ): Promise<VerifiedSource> {
     try {
-      // Fetch actual course material content
-      const result = await pool.query(
-        `SELECT cm.id, cm.file_name, cm.course_id, cmc.content_text
-         FROM course_materials cm
-         LEFT JOIN course_material_content cmc ON cm.id = cmc.material_id
-         WHERE cm.id = $1 AND cm.course_id = $2`,
-        [source.source_id, courseId]
-      );
+      // Strategy 1: Try to fetch the specific chunks that match the page/section
+      // This is more accurate than fetching the entire PDF content
+      const chunksQuery = `
+        SELECT
+          cm.id,
+          cm.file_name,
+          cm.course_id,
+          cme.chunk_text,
+          cme.chunk_metadata
+        FROM course_materials cm
+        JOIN course_material_embeddings cme ON cm.id = cme.material_id
+        WHERE cm.id = $1 AND cm.course_id = $2
+      `;
 
-      if (result.rows.length === 0) {
-        return {
-          claimed: source,
-          actual_content: null,
-          verification_status: 'unverified',
-          error: 'Course material not found or access denied'
-        };
-      }
+      const chunksResult = await pool.query(chunksQuery, [source.source_id, courseId]);
 
-      const material = result.rows[0];
+      console.log(`📊 Found ${chunksResult.rows.length} chunks for material ${source.source_id}`);
 
-      if (!material.content_text) {
-        return {
-          claimed: source,
-          actual_content: null,
-          verification_status: 'partially_verified',
-          error: 'Course material exists but content not extracted yet'
-        };
-      }
-
-      // Extract relevant section if page number provided
-      let relevantContent = material.content_text;
-      if (source.page_number) {
-        relevantContent = this.extractRelevantSection(
-          material.content_text,
-          source.page_number,
-          source.source_excerpt
+      if (chunksResult.rows.length === 0) {
+        // Fallback: Try to get full content if no chunks available
+        const fallbackResult = await pool.query(
+          `SELECT cm.id, cm.file_name, cm.course_id, cmc.content_text
+           FROM course_materials cm
+           LEFT JOIN course_material_content cmc ON cm.id = cmc.material_id
+           WHERE cm.id = $1 AND cm.course_id = $2`,
+          [source.source_id, courseId]
         );
+
+        if (fallbackResult.rows.length === 0) {
+          return {
+            claimed: source,
+            actual_content: null,
+            verification_status: 'unverified',
+            error: 'Course material not found or access denied'
+          };
+        }
+
+        const material = fallbackResult.rows[0];
+        if (!material.content_text) {
+          return {
+            claimed: source,
+            actual_content: null,
+            verification_status: 'partially_verified',
+            error: 'Course material exists but content not extracted yet'
+          };
+        }
+
+        // Use full content as last resort
+        return {
+          claimed: source,
+          actual_content: material.content_text.substring(0, 3000),
+          verification_status: 'partially_verified',
+          metadata: {
+            file_name: material.file_name,
+            course_verified: material.course_id === courseId,
+            note: 'Using full content (chunks not available)'
+          }
+        };
       }
+
+      // Strategy: Use ALL chunks without filtering
+      // Page numbers from PDF extraction are unreliable (all marked as page 1)
+      // Better to give verifier full context and let AI figure it out
+      const material = chunksResult.rows[0];
+
+      console.log(`📚 Using ALL ${chunksResult.rows.length} chunks for verification (page filtering disabled due to PDF extraction limitations)`);
+
+      const relevantChunks: string[] = chunksResult.rows.map(row => row.chunk_text);
+
+      // Don't truncate - give verifier as much context as possible
+      // Gemini can handle large contexts well
+      const relevantContent = relevantChunks.join('\n\n').substring(0, 15000); // Increased to 15k for full document context
+
+      console.log(`📝 Final content length: ${relevantContent.length} chars, ${relevantChunks.length} chunks used`);
+      console.log(`📄 Content preview: ${relevantContent.substring(0, 200)}...`);
 
       return {
         claimed: source,
@@ -260,7 +299,9 @@ Output JSON format:
         verification_status: 'verified',
         metadata: {
           file_name: material.file_name,
-          course_verified: material.course_id === courseId
+          course_verified: material.course_id === courseId,
+          chunks_used: relevantChunks.length,
+          total_chunks: chunksResult.rows.length
         }
       };
 
@@ -360,30 +401,6 @@ Output JSON format:
   }
 
   /**
-   * Extract relevant section from content based on page/section hints
-   */
-  private extractRelevantSection(
-    fullContent: string,
-    pageHint: string,
-    excerptHint: string | null
-  ): string {
-    // If excerpt provided, find that section
-    if (excerptHint && excerptHint.length > 20) {
-      const excerptIndex = fullContent.toLowerCase().indexOf(excerptHint.toLowerCase());
-      if (excerptIndex !== -1) {
-        // Extract context around the excerpt (500 chars before and after)
-        const start = Math.max(0, excerptIndex - 500);
-        const end = Math.min(fullContent.length, excerptIndex + excerptHint.length + 500);
-        return fullContent.substring(start, end);
-      }
-    }
-
-    // Otherwise, return a chunk around the page hint
-    // (Simplified - in production you'd parse actual page markers)
-    return fullContent.substring(0, 2000);
-  }
-
-  /**
    * Build verification context with actual vs claimed content
    */
   private buildVerificationContext(
@@ -412,7 +429,7 @@ ${vs.claimed.page_number ? `- **Page**: ${vs.claimed.page_number}` : ''}
 
 **What Source ACTUALLY Says (Verified Content):**
 ${vs.actual_content ? `"""
-${vs.actual_content.substring(0, 1000)}${vs.actual_content.length > 1000 ? '...' : ''}
+${vs.actual_content}
 """` : `❌ COULD NOT VERIFY: ${vs.error || 'Unknown error'}`}
 
 ---
@@ -422,11 +439,14 @@ ${vs.actual_content.substring(0, 1000)}${vs.actual_content.length > 1000 ? '...'
     context += `
 
 ## Your Task:
-1. Compare what the chatbot claimed vs. what sources ACTUALLY say
-2. Identify any hallucinations, misquotes, or incorrect citations
-3. Detect if chatbot fabricated information
-4. Assign trust score based on evidence (not assumptions!)
-5. Provide specific examples of matches or mismatches
+1. CAREFULLY read through the ENTIRE source content provided above
+2. Search for the information the chatbot claimed - look for the MEANING, not exact wording
+3. Remember: PDF extraction may change formatting (spaces, line breaks), but meaning stays same
+4. If you find the information, note it as VERIFIED with specific evidence
+5. If truly absent, mark as missing
+6. Assign trust score based on what you actually found (be fair and objective!)
+
+IMPORTANT: The source content above is the COMPLETE text from the database. Read it ALL carefully before concluding information is missing.
 
 Respond with the JSON format specified in your system prompt.`;
 

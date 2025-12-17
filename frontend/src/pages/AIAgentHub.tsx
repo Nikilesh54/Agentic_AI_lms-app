@@ -177,7 +177,7 @@ const AIAgentHub: React.FC = () => {
           <div className="courses-section">
             <div className="section-header">
               <h2>Choose a Course to Chat About</h2>
-              <p>Select any of your enrolled courses to start a conversation with your AI assistant</p>
+              {/* <p>Select any of your enrolled courses to start a conversation with your AI assistant</p> */}
             </div>
 
             {courses.length === 0 ? (

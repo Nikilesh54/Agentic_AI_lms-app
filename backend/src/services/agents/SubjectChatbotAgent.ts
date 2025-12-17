@@ -3,6 +3,7 @@ import { AIContext, AIMessage, AIResponse } from '../ai/types';
 import { getAIService } from '../ai/AIServiceFactory';
 import { pool } from '../../config/database';
 import { WebSearchService } from '../search/WebSearchService';
+import { searchCourseMaterials as vectorSearchCourseMaterials, getCourseMaterialStats } from '../vectorSearch';
 
 /**
  * Subject-Specific Chatbot Agent
@@ -134,11 +135,11 @@ Would you like me to help you understand what skills and certifications can help
         throw new Error('Course ID is required for Subject Chatbot');
       }
 
-      // Search for relevant course materials
+      // Search for relevant course materials using vector search
       const relevantMaterials = await this.searchCourseMaterials(
         courseId,
         message.content,
-        5 // limit to top 5 most relevant materials
+        30 // Get top 30 most relevant chunks for comprehensive context
       );
 
       // Check if we should search the web (if course materials are insufficient)
@@ -260,53 +261,54 @@ Please provide a comprehensive, helpful answer.`;
   }
 
   /**
-   * Search course materials for relevant content
+   * Search course materials for relevant content using vector similarity
    */
   private async searchCourseMaterials(
     courseId: number,
     query: string,
-    limit: number = 5
+    limit: number = 30  // Increased from 20 to get more comprehensive context
   ): Promise<CourseMaterial[]> {
-    // Search in course materials
-    const result = await pool.query(
-      `SELECT cm.*, cmc.content_text
-       FROM course_materials cm
-       LEFT JOIN course_material_content cmc ON cm.id = cmc.material_id
-       WHERE cm.course_id = $1
-       ORDER BY cm.uploaded_at DESC
-       LIMIT $2`,
-      [courseId, limit * 2] // Get more materials for better search
-    );
+    try {
+      // Get material stats for logging
+      const stats = await getCourseMaterialStats(courseId);
+      console.log(
+        `Searching ${stats.totalChunks} chunks from ${stats.processedMaterials} materials ` +
+        `(${stats.unprocessedMaterials} unprocessed)`
+      );
 
-    const materials: CourseMaterial[] = result.rows.map(row => ({
-      id: row.id,
-      course_id: row.course_id,
-      file_name: row.file_name,
-      file_path: row.file_path,
-      file_type: row.file_type,
-      content_text: row.content_text,
-      uploaded_at: row.uploaded_at
-    }));
-
-    // Simple relevance scoring based on keyword matching
-    const keywords = query.toLowerCase().split(' ').filter(w => w.length > 3);
-    const scoredMaterials = materials.map(material => {
-      let score = 0;
-      const searchText = `${material.file_name} ${material.content_text || ''}`.toLowerCase();
-
-      keywords.forEach(keyword => {
-        const count = (searchText.match(new RegExp(keyword, 'g')) || []).length;
-        score += count;
+      // Use vector search to find semantically relevant chunks
+      const searchResults = await vectorSearchCourseMaterials(courseId, query, {
+        topK: limit,
+        minSimilarity: 0.5,  // Only include chunks with >50% similarity (lowered from 0.6 for better recall)
+        includeMetadata: true
       });
 
-      return { material, score };
-    });
+      // Convert search results to CourseMaterial format for backward compatibility
+      const materials: CourseMaterial[] = searchResults.map(result => ({
+        id: result.material_id,
+        course_id: courseId,
+        file_name: result.file_name,
+        file_path: result.file_path,
+        file_type: result.file_type,
+        content_text: result.chunk_text,  // Now contains actual content from the chunk!
+        page_number: result.page_number,
+        chunk_index: result.chunk_index,
+        similarity_score: result.similarity_score,
+        uploaded_at: result.uploaded_at
+      }));
 
-    // Sort by score and return top materials
-    return scoredMaterials
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map(item => item.material);
+      console.log(`✓ Found ${materials.length} relevant chunks (avg similarity: ${
+        materials.length > 0
+          ? (materials.reduce((sum, m) => sum + (m.similarity_score || 0), 0) / materials.length).toFixed(2)
+          : 0
+      })`);
+
+      return materials;
+    } catch (error) {
+      console.error('Error in vector search, falling back to empty results:', error);
+      // Return empty array instead of failing completely
+      return [];
+    }
   }
 
   /**
@@ -491,6 +493,9 @@ export interface CourseMaterial {
   file_path: string;
   file_type: string;
   content_text?: string;
+  page_number?: number | string;
+  chunk_index?: number;
+  similarity_score?: number;
   uploaded_at: Date;
 }
 

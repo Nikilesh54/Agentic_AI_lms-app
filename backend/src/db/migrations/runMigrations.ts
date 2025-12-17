@@ -24,6 +24,12 @@ export async function runMigrations(): Promise<void> {
     await client.query(newAgentMigrationSQL);
     console.log('✓ New Agent System schema migration completed successfully');
 
+    // Migration 3: RAG System (Document extraction, embeddings, vector search)
+    const ragMigrationPath = path.join(__dirname, 'rag-system-schema.sql');
+    const ragMigrationSQL = fs.readFileSync(ragMigrationPath, 'utf8');
+    await client.query(ragMigrationSQL);
+    console.log('✓ RAG System schema migration completed successfully');
+
   } catch (error) {
     console.error('Error running migrations:', error);
     throw error;

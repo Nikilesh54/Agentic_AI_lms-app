@@ -106,15 +106,40 @@ export class GeminiAIService implements IAIService {
       }
     }
 
-    // Add relevant materials
+    // Add relevant materials with actual content from vector search
     if (context.relevantMaterials && context.relevantMaterials.length > 0) {
-      parts.push('\n**Available Course Materials:**');
+      parts.push('\n**Relevant Course Materials (Semantically Similar to Query):**');
+      parts.push('Below are the most relevant chunks from course materials, ranked by similarity:');
+      parts.push('');
+
       context.relevantMaterials.forEach((material: any, index: number) => {
-        parts.push(`${index + 1}. ${material.file_name} (ID: ${material.id})`);
-        if (material.content) {
-          parts.push(`   Content: ${material.content.substring(0, 500)}...`);
+        // Build material header with metadata
+        let header = `\n### Source ${index + 1}: ${material.file_name}`;
+
+        if (material.page_number) {
+          header += ` (Page ${material.page_number})`;
         }
+
+        if (material.similarity_score !== undefined) {
+          const similarityPercent = (material.similarity_score * 100).toFixed(1);
+          header += ` [Relevance: ${similarityPercent}%]`;
+        }
+
+        parts.push(header);
+
+        // Add the actual content from the chunk
+        if (material.content_text) {
+          parts.push(`Content: ${material.content_text}`);
+        } else if (material.content) {
+          // Fallback for backward compatibility
+          parts.push(`Content: ${material.content.substring(0, 1000)}`);
+        }
+
+        parts.push('---');
       });
+
+      parts.push('\n**IMPORTANT**: You MUST cite these sources in your response using the format:');
+      parts.push('[Source: {file_name}, Page {page_number}]');
     }
 
     // Add active assignments

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 import { chatAPI } from '../services/api';
 import { useToast } from '../components/Toast';
 import MessageMetadata from '../components/MessageMetadata';
@@ -345,7 +346,13 @@ const ChatInterface: React.FC = () => {
                       <div className="system-message">{message.content}</div>
                     ) : (
                       <>
-                        <div className="message-content">{message.content}</div>
+                        <div className="message-content">
+                          {message.sender_type === 'agent' ? (
+                            <ReactMarkdown>{message.content}</ReactMarkdown>
+                          ) : (
+                            message.content
+                          )}
+                        </div>
 
                         {/* Show sources and trust score for agent messages */}
                         {message.sender_type === 'agent' && (
@@ -436,12 +443,6 @@ const ChatInterface: React.FC = () => {
             </span>
             <button className="icon-button" title="Attach file" disabled>
               📎
-            </button>
-            <button className="icon-button" title="Voice input (coming soon)" disabled>
-              🎤
-            </button>
-            <button className="icon-button" title="Emoji picker">
-              😊
             </button>
             <button
               className="send-button"

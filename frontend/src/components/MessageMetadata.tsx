@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { chatAPI } from '../services/api';
 import type {
   ResponseSource,
@@ -23,10 +23,46 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
   const [showDetails, setShowDetails] = useState(false);
   const [showSources, setShowSources] = useState(false);
 
+  const trustDropdownRef = useRef<HTMLDivElement>(null);
+  const sourcesDropdownRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchSources();
     fetchTrustScore();
   }, [messageId]);
+
+  // Handle click outside to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Close trust score dropdown if clicked outside
+      if (trustDropdownRef.current && !trustDropdownRef.current.contains(event.target as Node)) {
+        // Check if the click was on the trust badge button
+        const target = event.target as HTMLElement;
+        if (!target.closest('.trust-badge')) {
+          setShowDetails(false);
+        }
+      }
+
+      // Close sources dropdown if clicked outside
+      if (sourcesDropdownRef.current && !sourcesDropdownRef.current.contains(event.target as Node)) {
+        // Check if the click was on the sources badge button
+        const target = event.target as HTMLElement;
+        if (!target.closest('.sources-badge')) {
+          setShowSources(false);
+        }
+      }
+    };
+
+    // Add event listener when either dropdown is open
+    if (showDetails || showSources) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDetails, showSources]);
 
   const fetchSources = async () => {
     try {
@@ -97,7 +133,7 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
 
       {/* Sources Dropdown */}
       {showSources && sources.length > 0 && (
-        <div className="metadata-dropdown sources-dropdown">
+        <div className="metadata-dropdown sources-dropdown" ref={sourcesDropdownRef}>
           <div className="dropdown-header">
             <h4>📚 Sources Referenced</h4>
             <button className="close-btn" onClick={() => setShowSources(false)}>✕</button>
@@ -149,7 +185,7 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
 
       {/* Trust Score Details Dropdown */}
       {showDetails && trustScore && (
-        <div className="metadata-dropdown trust-dropdown">
+        <div className="metadata-dropdown trust-dropdown" ref={trustDropdownRef}>
           <div className="dropdown-header">
             <h4>🔍 Verification Details</h4>
             <button className="close-btn" onClick={() => setShowDetails(false)}>✕</button>
