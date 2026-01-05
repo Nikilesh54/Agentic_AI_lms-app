@@ -1,10 +1,27 @@
 import express, { Request, Response } from 'express';
 import { pool } from '../config/database';
 import { authenticate, authorize, requireActiveStatus } from '../middleware/auth';
+import {
+  validateChatMessage,
+  validateSessionStatus,
+  validateContentType,
+  validatePositiveInteger,
+  validatePagination
+} from '../middleware/validation';
+import { createRateLimitMiddleware } from '../utils/rateLimiter';
 import { SubjectChatbotAgent } from '../services/agents/SubjectChatbotAgent';
 import { EnhancedIntegrityVerificationAgent } from '../services/agents/EnhancedIntegrityVerificationAgent';
 import { AgentMessage } from '../services/agents/newAgentTypes';
 import { AIContext, AIMessage } from '../services/ai/types';
+import fs from 'fs';
+import path from 'path';
+
+// File-only logging (no console output)
+const LOG_PATH = path.join(__dirname, '../../api-debug.log');
+function logToFile(message: string) {
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(LOG_PATH, `[${timestamp}] ${message}\n`);
+}
 
 const router = express.Router();
 
@@ -12,6 +29,9 @@ const router = express.Router();
 router.use(authenticate);
 router.use(authorize('student', 'professor', 'root'));
 router.use(requireActiveStatus);
+
+// Apply rate limiting to chat routes (100 requests per minute per user)
+router.use(createRateLimitMiddleware(100, 60000));
 
 // Get all courses for chatbot selection (based on user role)
 router.get('/courses', async (req: Request, res: Response) => {
@@ -241,16 +261,18 @@ router.post('/sessions', async (req: Request, res: Response) => {
 });
 
 // Get all chat sessions for a student
-router.get('/sessions', async (req: Request, res: Response) => {
+router.get('/sessions', validateSessionStatus(), validatePagination(), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
+
     const { courseId, status = 'active' } = req.query;
 
-    let query = `
+    // FIXED: Use safe query building with validated parameters
+    const baseQuery = `
       SELECT
         cs.*,
         c.title as course_name,
@@ -265,22 +287,28 @@ router.get('/sessions', async (req: Request, res: Response) => {
     `;
 
     const params: any[] = [userId];
-    let paramIndex = 2;
+    const conditions: string[] = [];
 
+    // Validate and add courseId filter
     if (courseId) {
-      query += ` AND cs.course_id = $${paramIndex}`;
-      params.push(courseId);
-      paramIndex++;
+      const parsedCourseId = parseInt(courseId as string, 10);
+      if (!isNaN(parsedCourseId) && parsedCourseId > 0) {
+        params.push(parsedCourseId);
+        conditions.push(`cs.course_id = $${params.length}`);
+      }
     }
 
+    // Validate and add status filter (already validated by middleware)
     if (status) {
-      query += ` AND cs.status = $${paramIndex}`;
       params.push(status);
+      conditions.push(`cs.status = $${params.length}`);
     }
 
-    query += ' ORDER BY cs.last_activity_at DESC';
+    // Build final query safely
+    const whereClause = conditions.length > 0 ? ' AND ' + conditions.join(' AND ') : '';
+    const finalQuery = baseQuery + whereClause + ' ORDER BY cs.last_activity_at DESC';
 
-    const result = await pool.query(query, params);
+    const result = await pool.query(finalQuery, params);
 
     res.json({
       message: 'Chat sessions retrieved successfully',
@@ -331,40 +359,53 @@ router.get('/sessions/:sessionId/messages', async (req: Request, res: Response) 
   }
 });
 
-// Send a message in a chat session
-router.post('/sessions/:sessionId/messages', async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.userId;
+// Send a message in a chat session (with stricter rate limit for AI calls)
+router.post(
+  '/sessions/:sessionId/messages',
+  createRateLimitMiddleware(20, 60000), // 20 AI messages per minute
+  validateChatMessage(),
+  async (req: Request, res: Response) => {
+    try {
+      logToFile('\n' + '='.repeat(80));
+      logToFile('📨 NEW MESSAGE RECEIVED');
+      logToFile('Session ID: ' + req.params.sessionId);
+      logToFile('Message: ' + req.body.content?.substring(0, 100));
+      logToFile('='.repeat(80));
 
-    if (!userId) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-    const { sessionId } = req.params;
-    const { content } = req.body;
+      const userId = req.user?.userId;
 
-    if (!content || content.trim().length === 0) {
-      return res.status(400).json({ error: 'Message content is required' });
-    }
+      if (!userId) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
 
-    // Verify session belongs to user
-    const sessionCheck = await pool.query(
-      'SELECT course_id FROM chat_sessions WHERE id = $1 AND student_id = $2 AND status = $3',
-      [sessionId, userId, 'active']
-    );
+      const { sessionId } = req.params;
+      const { sanitizedContent } = req.body;  // Use sanitized content from validation middleware
 
-    if (sessionCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'Access denied or session is not active' });
-    }
+      // Validate session ID
+      const parsedSessionId = parseInt(sessionId, 10);
+      if (isNaN(parsedSessionId) || parsedSessionId <= 0) {
+        return res.status(400).json({ error: 'Invalid session ID' });
+      }
 
-    const courseId = sessionCheck.rows[0].course_id;
+      // Verify session belongs to user
+      const sessionCheck = await pool.query(
+        'SELECT course_id FROM chat_sessions WHERE id = $1 AND student_id = $2 AND status = $3',
+        [parsedSessionId, userId, 'active']
+      );
 
-    // Save student message
-    const studentMessage = await pool.query(
-      `INSERT INTO chat_messages (session_id, sender_type, content)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
-      [sessionId, 'student', content]
-    );
+      if (sessionCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'Access denied or session is not active' });
+      }
+
+      const courseId = sessionCheck.rows[0].course_id;
+
+      // Save student message with sanitized content
+      const studentMessage = await pool.query(
+        `INSERT INTO chat_messages (session_id, sender_type, content)
+         VALUES ($1, $2, $3)
+         RETURNING *`,
+        [parsedSessionId, 'student', sanitizedContent]
+      );
 
     // Get recent message history for context
     const historyResult = await pool.query(
@@ -372,7 +413,7 @@ router.post('/sessions/:sessionId/messages', async (req: Request, res: Response)
        WHERE session_id = $1 AND is_deleted = false
        ORDER BY created_at ASC
        LIMIT 20`,
-      [sessionId]
+      [parsedSessionId]
     );
 
     // Get course details
@@ -397,50 +438,110 @@ router.post('/sessions/:sessionId/messages', async (req: Request, res: Response)
       }
     };
 
-    // Create agent message for the Subject Chatbot
-    const agentMessage: AgentMessage = {
-      content,
-      userId,
-      role: 'student',
-      sessionId: parseInt(sessionId),
-      messageId: studentMessage.rows[0].id,
-      timestamp: new Date()
-    };
+      // Create agent message for the Subject Chatbot
+      const agentMessage: AgentMessage = {
+        content: sanitizedContent,  // Use sanitized content
+        userId,
+        role: 'student',
+        sessionId: parsedSessionId,
+        messageId: studentMessage.rows[0].id,
+        timestamp: new Date()
+      };
 
-    // Generate AI response using Subject Chatbot Agent
-    const chatbot = new SubjectChatbotAgent();
-    const agentResponse = await chatbot.execute(agentMessage, aiContext);
+      // Generate AI response using Subject Chatbot Agent
+      const chatbot = new SubjectChatbotAgent();
+      const agentResponse = await chatbot.execute(agentMessage, aiContext);
 
-    // Save AI response with metadata
-    const agentMessageResult = await pool.query(
-      `INSERT INTO chat_messages (session_id, sender_type, content, message_metadata)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [sessionId, 'agent', agentResponse.content, JSON.stringify({
-        confidence: agentResponse.confidence,
-        sourcesCount: agentResponse.sources?.length || 0
-      })]
-    );
+      // Save AI response with metadata
+      const agentMessageResult = await pool.query(
+        `INSERT INTO chat_messages (session_id, sender_type, content, message_metadata)
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+        [parsedSessionId, 'agent', agentResponse.content, JSON.stringify({
+          confidence: agentResponse.confidence,
+          sourcesCount: agentResponse.sources?.length || 0
+        })]
+      );
 
     const savedAgentMessageId = agentMessageResult.rows[0].id;
 
-    // Run ENHANCED Integrity Verification Agent in background (don't block response)
-    // This will independently verify sources with web crawling and calculate trust score
-    const verifier = new EnhancedIntegrityVerificationAgent();
-    verifier.verifyResponse(
-      savedAgentMessageId,
-      agentResponse.content,
-      agentResponse.sources || [],
-      courseId
-    ).catch(err => {
-      console.error('Error in enhanced integrity verification:', err);
-    });
+      // Run ENHANCED Integrity Verification Agent in background with proper error handling
+      // This will independently verify sources with web crawling and calculate trust score
+      logToFile('='.repeat(80));
+      logToFile('🔍 PREPARING TO START VERIFICATION');
+      logToFile('Message ID: ' + savedAgentMessageId);
+      logToFile('Course ID: ' + courseId);
+      logToFile('Response length: ' + agentResponse.content.length);
+      logToFile('Sources count: ' + (agentResponse.sources?.length || 0));
+      logToFile('Sources: ' + JSON.stringify(agentResponse.sources, null, 2));
+      logToFile('='.repeat(80));
 
-    // Update session last activity
-    await pool.query(
-      'UPDATE chat_sessions SET last_activity_at = CURRENT_TIMESTAMP WHERE id = $1',
-      [sessionId]
-    );
+      // FIXED: Improved error handling for background verification
+      (async () => {
+        const MAX_RETRIES = 2;
+        let attempt = 0;
+
+        while (attempt <= MAX_RETRIES) {
+          try {
+            const verifier = new EnhancedIntegrityVerificationAgent();
+            logToFile(`✓ Verifier instance created (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+
+            await verifier.verifyResponse(
+              savedAgentMessageId,
+              agentResponse.content,
+              agentResponse.sources || [],
+              courseId
+            );
+
+            logToFile('✅ Verification completed successfully');
+            break;  // Success, exit retry loop
+
+          } catch (err: any) {
+            attempt++;
+            logToFile(`❌ ERROR IN ENHANCED INTEGRITY VERIFICATION (attempt ${attempt}/${MAX_RETRIES + 1}):`);
+            logToFile('Error message: ' + err.message);
+            logToFile('Error stack: ' + err.stack);
+
+            if (attempt > MAX_RETRIES) {
+              // Store error state in database
+              try {
+                await pool.query(
+                  `INSERT INTO message_trust_scores (
+                    message_id, overall_score, verification_status, verification_metadata
+                  ) VALUES ($1, $2, $3, $4)
+                  ON CONFLICT (message_id) DO UPDATE SET
+                    verification_status = EXCLUDED.verification_status,
+                    verification_metadata = EXCLUDED.verification_metadata`,
+                  [
+                    savedAgentMessageId,
+                    0,
+                    'error',
+                    JSON.stringify({
+                      error: err.message,
+                      timestamp: new Date().toISOString(),
+                      attempts: MAX_RETRIES + 1
+                    })
+                  ]
+                );
+                logToFile('⚠️ Verification failed after retries, error state recorded in database');
+              } catch (dbErr: any) {
+                logToFile('❌ Failed to record verification error in database: ' + dbErr.message);
+              }
+            } else {
+              // Wait before retry (exponential backoff)
+              const waitTime = Math.pow(2, attempt) * 1000;
+              logToFile(`⏳ Waiting ${waitTime}ms before retry...`);
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+          }
+        }
+      })();
+
+      // Update session last activity
+      await pool.query(
+        'UPDATE chat_sessions SET last_activity_at = CURRENT_TIMESTAMP WHERE id = $1',
+        [parsedSessionId]
+      );
 
     res.json({
       message: 'Message sent successfully',
@@ -451,9 +552,19 @@ router.post('/sessions/:sessionId/messages', async (req: Request, res: Response)
         confidence: agentResponse.confidence
       }
     });
-  } catch (error) {
-    console.error('Error sending message:', error);
-    res.status(500).json({ error: 'Failed to send message' });
+  } catch (error: any) {
+    console.error('❌ ERROR SENDING MESSAGE:');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Full error:', error);
+
+    // Return more detailed error for debugging
+    const errorMessage = error.message || 'Failed to send message';
+    res.status(500).json({
+      error: 'Failed to send message',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    });
   }
 });
 

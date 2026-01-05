@@ -15,8 +15,14 @@ const authenticate = async (req, res, next) => {
             return res.status(401).json({ error: 'Authentication required' });
         }
         const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+        // Verify JWT secret is configured
+        const jwtSecret = process.env.JWT_SECRET;
+        if (!jwtSecret) {
+            console.error('CRITICAL: JWT_SECRET environment variable is not set!');
+            return res.status(500).json({ error: 'Server configuration error' });
+        }
         // Verify token
-        const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        const decoded = jsonwebtoken_1.default.verify(token, jwtSecret);
         // Fetch user from database to ensure they still exist and get current status
         const user = await database_1.pool.query('SELECT id, email, role, status FROM users WHERE id = $1', [decoded.userId]);
         if (user.rows.length === 0) {

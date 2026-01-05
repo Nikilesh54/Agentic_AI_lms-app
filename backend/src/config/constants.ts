@@ -1,0 +1,251 @@
+/**
+ * Application-wide constants and configuration values
+ * Centralized location for all magic numbers and configurable parameters
+ */
+
+// =====================================================
+// VECTOR SEARCH CONFIGURATION
+// =====================================================
+export const VECTOR_SEARCH = {
+  /** Default number of chunks to retrieve */
+  DEFAULT_TOP_K: 20,
+
+  /** Maximum number of chunks allowed */
+  MAX_TOP_K: 100,
+
+  /** Minimum similarity threshold (0-1) for considering a chunk relevant */
+  MIN_SIMILARITY: 0.5,
+
+  /** Higher minimum similarity for more precise searches */
+  HIGH_PRECISION_SIMILARITY: 0.7,
+} as const;
+
+// =====================================================
+// DOCUMENT PROCESSING CONFIGURATION
+// =====================================================
+export const DOCUMENT_PROCESSING = {
+  /** Target words per chunk for document splitting */
+  CHUNK_SIZE_WORDS: 300,
+
+  /** Word overlap between consecutive chunks */
+  CHUNK_OVERLAP_WORDS: 150,
+
+  /** Maximum chunk size in words */
+  MAX_CHUNK_SIZE_WORDS: 500,
+
+  /** Minimum chunk size in words */
+  MIN_CHUNK_SIZE_WORDS: 50,
+} as const;
+
+// =====================================================
+// AGENT CONFIGURATION
+// =====================================================
+export const AGENT_CONFIG = {
+  /** Number of materials to search for chatbot context */
+  CHATBOT_SEARCH_LIMIT: 30,
+
+  /** Maximum content length for verification (characters) */
+  VERIFICATION_MAX_CONTENT_LENGTH: 20000, // Increased from 15000
+
+  /** Web crawl timeout in milliseconds */
+  WEB_CRAWL_TIMEOUT_MS: 15000, // Increased from 10000
+
+  /** Maximum web search results to fetch */
+  WEB_SEARCH_MAX_RESULTS: 5,
+
+  /** Maximum content to fetch from web pages */
+  WEB_CONTENT_MAX_LENGTH: 5000,
+} as const;
+
+// =====================================================
+// EMBEDDING SERVICE CONFIGURATION
+// =====================================================
+export const EMBEDDING_CONFIG = {
+  /** Batch size for embedding generation */
+  BATCH_SIZE: 5,
+
+  /** Delay between batches in milliseconds */
+  BATCH_DELAY_MS: 500,
+
+  /** Maximum cache size for in-memory embedding cache */
+  CACHE_MAX_SIZE: 1000,
+
+  /** Embedding dimension for text-embedding-004 model */
+  EMBEDDING_DIMENSION: 768,
+} as const;
+
+// =====================================================
+// AI SERVICE CONFIGURATION
+// =====================================================
+export const AI_SERVICE = {
+  /** Default temperature for AI responses (lower = more factual, higher = more creative) */
+  DEFAULT_TEMPERATURE: 0.3,
+
+  /** Default max tokens for responses */
+  DEFAULT_MAX_TOKENS: 2048,
+
+  /** Minimum confidence score to not require review */
+  MIN_CONFIDENCE_NO_REVIEW: 0.6,
+
+  /** Confidence threshold for uncertain responses */
+  LOW_CONFIDENCE_THRESHOLD: 0.5,
+
+  /** Maximum retries for API calls */
+  MAX_RETRIES: 3,
+
+  /** Initial retry delay in milliseconds */
+  INITIAL_RETRY_DELAY_MS: 1000,
+
+  /** Maximum retry delay in milliseconds */
+  MAX_RETRY_DELAY_MS: 10000,
+
+  /** Backoff multiplier for exponential backoff */
+  RETRY_BACKOFF_MULTIPLIER: 2,
+} as const;
+
+// =====================================================
+// PAGINATION CONFIGURATION
+// =====================================================
+export const PAGINATION = {
+  /** Default page size for list endpoints */
+  DEFAULT_PAGE_SIZE: 20,
+
+  /** Maximum page size allowed */
+  MAX_PAGE_SIZE: 100,
+
+  /** Default page number */
+  DEFAULT_PAGE: 1,
+} as const;
+
+// =====================================================
+// AUTHENTICATION CONFIGURATION
+// =====================================================
+export const AUTH = {
+  /** JWT token expiration time */
+  JWT_EXPIRATION: '7d',
+
+  /** Bcrypt salt rounds for password hashing */
+  BCRYPT_SALT_ROUNDS: 10,
+
+  /** Minimum password length */
+  MIN_PASSWORD_LENGTH: 8,
+} as const;
+
+// =====================================================
+// FILE UPLOAD CONFIGURATION
+// =====================================================
+export const FILE_UPLOAD = {
+  /** Maximum file size in bytes (50MB) */
+  MAX_FILE_SIZE: 50 * 1024 * 1024,
+
+  /** Allowed MIME types for course materials */
+  ALLOWED_COURSE_MATERIAL_TYPES: [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'text/plain',
+    'text/markdown',
+  ],
+
+  /** Allowed MIME types for assignment submissions */
+  ALLOWED_SUBMISSION_TYPES: [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'text/plain',
+    'image/png',
+    'image/jpeg',
+    'application/zip',
+  ],
+} as const;
+
+// =====================================================
+// DATABASE CONFIGURATION
+// =====================================================
+export const DATABASE = {
+  /** Connection pool size */
+  POOL_SIZE: 20,
+
+  /** Connection timeout in milliseconds */
+  CONNECTION_TIMEOUT_MS: 10000,
+
+  /** Idle connection timeout in milliseconds */
+  IDLE_TIMEOUT_MS: 30000,
+} as const;
+
+// =====================================================
+// LOGGING CONFIGURATION
+// =====================================================
+export const LOGGING = {
+  /** Log levels */
+  LEVELS: {
+    ERROR: 'error',
+    WARN: 'warn',
+    INFO: 'info',
+    DEBUG: 'debug',
+  } as const,
+
+  /** Default log level */
+  DEFAULT_LEVEL: 'info',
+
+  /** Enable console logging */
+  ENABLE_CONSOLE: true,
+
+  /** Enable file logging */
+  ENABLE_FILE: true,
+
+  /** Log file path */
+  FILE_PATH: './logs/app.log',
+} as const;
+
+// =====================================================
+// TRUST SCORE THRESHOLDS
+// =====================================================
+export const TRUST_SCORE = {
+  /** Trust score thresholds */
+  HIGHEST: 90,
+  HIGH: 70,
+  MEDIUM: 50,
+  LOWER: 30,
+
+  /** Minimum trust score to display without warning */
+  MIN_ACCEPTABLE: 70,
+} as const;
+
+// =====================================================
+// HELPER FUNCTIONS
+// =====================================================
+
+/**
+ * Get environment variable value with type safety
+ */
+export function getEnvVar(key: string, defaultValue?: string): string {
+  const value = process.env[key];
+  if (!value && !defaultValue) {
+    throw new Error(`Required environment variable ${key} is not set`);
+  }
+  return value || defaultValue || '';
+}
+
+/**
+ * Get numeric environment variable
+ */
+export function getEnvNumber(key: string, defaultValue: number): number {
+  const value = process.env[key];
+  if (!value) return defaultValue;
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed)) {
+    console.warn(`Invalid number for ${key}, using default: ${defaultValue}`);
+    return defaultValue;
+  }
+  return parsed;
+}
+
+/**
+ * Get boolean environment variable
+ */
+export function getEnvBoolean(key: string, defaultValue: boolean): boolean {
+  const value = process.env[key];
+  if (!value) return defaultValue;
+  return value.toLowerCase() === 'true';
+}

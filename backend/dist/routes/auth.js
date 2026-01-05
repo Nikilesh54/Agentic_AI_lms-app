@@ -42,12 +42,17 @@ router.post('/signup', async (req, res) => {
         const userStatus = userRole === 'professor' ? 'pending' : 'active';
         const newUser = await client.query('INSERT INTO users (full_name, email, password_hash, role, status) VALUES ($1, $2, $3, $4, $5) RETURNING id, full_name, email, role, status', [fullName, email, passwordHash, userRole, userStatus]);
         await client.query('COMMIT');
+        // Verify JWT secret is configured
+        const jwtSecret = process.env.JWT_SECRET;
+        if (!jwtSecret) {
+            throw new Error('JWT_SECRET environment variable is not set');
+        }
         // Generate JWT token
         const token = jsonwebtoken_1.default.sign({
             userId: newUser.rows[0].id,
             email: newUser.rows[0].email,
             role: newUser.rows[0].role
-        }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '7d' });
+        }, jwtSecret, { expiresIn: '7d' });
         const response = {
             message: userRole === 'professor'
                 ? 'Professor registration successful. Your account is pending approval.'
@@ -103,13 +108,18 @@ router.post('/login', async (req, res) => {
                 error: 'Invalid email or password'
             });
         }
+        // Verify JWT secret is configured
+        const jwtSecret = process.env.JWT_SECRET;
+        if (!jwtSecret) {
+            throw new Error('JWT_SECRET environment variable is not set');
+        }
         // Generate JWT token
         console.log('Generating JWT token...');
         const token = jsonwebtoken_1.default.sign({
             userId: user.rows[0].id,
             email: user.rows[0].email,
             role: user.rows[0].role
-        }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '7d' });
+        }, jwtSecret, { expiresIn: '7d' });
         console.log('Login successful for:', email);
         res.json({
             message: 'Login successful',

@@ -76,7 +76,8 @@ export interface IAIService {
   generateResponse(
     messages: AIMessage[],
     context: AIContext,
-    systemPrompt?: string
+    systemPrompt?: string,
+    options?: { jsonMode?: boolean }
   ): Promise<AIResponse>;
 
   /**

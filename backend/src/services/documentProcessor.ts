@@ -1,5 +1,6 @@
 const pdfParse = require('pdf-parse');
 import mammoth from 'mammoth';
+import { DOCUMENT_PROCESSING } from '../config/constants';
 
 /**
  * Interface for processed document chunks
@@ -126,8 +127,8 @@ async function extractFromWord(fileBuffer: Buffer): Promise<ProcessedDocument> {
     const content_text = result.value;
     const word_count = content_text.split(/\s+/).filter((w: string) => w.length > 0).length;
 
-    // Chunk the text into ~500-word segments with 150-word overlap for better granularity
-    const chunks = chunkText(content_text, 300, 150);
+    // Chunk using configured values with semantic awareness
+    const chunks = chunkTextSemantic(content_text);
 
     return {
       content_text,
@@ -160,8 +161,8 @@ async function extractFromText(fileBuffer: Buffer, fileName: string): Promise<Pr
     const content_text = fileBuffer.toString('utf-8');
     const word_count = content_text.split(/\s+/).filter((w: string) => w.length > 0).length;
 
-    // Chunk the text into ~500-word segments with 150-word overlap for better granularity
-    const chunks = chunkText(content_text, 300, 150);
+    // Chunk using configured values with semantic awareness
+    const chunks = chunkTextSemantic(content_text);
 
     return {
       content_text,
@@ -187,10 +188,82 @@ async function extractFromText(fileBuffer: Buffer, fileName: string): Promise<Pr
 }
 
 /**
- * Chunk text into smaller segments with overlap
+ * Semantic-aware text chunking - preserves paragraph and sentence boundaries
  * @param text - The text to chunk
- * @param targetWords - Target words per chunk (default: 500)
- * @param overlapWords - Words to overlap between chunks (default: 150)
+ * @returns Array of document chunks
+ */
+function chunkTextSemantic(text: string): DocumentChunk[] {
+  const targetWords = DOCUMENT_PROCESSING.CHUNK_SIZE_WORDS;
+  const overlapWords = DOCUMENT_PROCESSING.CHUNK_OVERLAP_WORDS;
+
+  // Split into paragraphs first (preserve natural document structure)
+  const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+
+  const chunks: DocumentChunk[] = [];
+  let currentChunk = '';
+  let chunkIndex = 0;
+  let charOffset = 0;
+
+  for (const paragraph of paragraphs) {
+    const paragraphWords = paragraph.split(/\s+/).filter(w => w.length > 0);
+    const currentWords = currentChunk.split(/\s+/).filter(w => w.length > 0);
+
+    // If adding this paragraph exceeds target, save current chunk
+    if (currentWords.length > 0 && currentWords.length + paragraphWords.length > targetWords) {
+      chunks.push({
+        chunk_id: `chunk_${chunkIndex}`,
+        text: currentChunk.trim(),
+        metadata: {
+          start_char: charOffset,
+          end_char: charOffset + currentChunk.length,
+          chunk_index: chunkIndex
+        }
+      });
+
+      chunkIndex++;
+      charOffset += currentChunk.length;
+
+      // Keep overlap from previous chunk (last N words)
+      const overlapText = currentWords.slice(-overlapWords).join(' ');
+      currentChunk = overlapText + '\n\n' + paragraph;
+    } else {
+      // Add paragraph to current chunk
+      currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
+    }
+  }
+
+  // Add final chunk
+  if (currentChunk.trim().length > 0) {
+    chunks.push({
+      chunk_id: `chunk_${chunkIndex}`,
+      text: currentChunk.trim(),
+      metadata: {
+        start_char: charOffset,
+        end_char: charOffset + currentChunk.length,
+        chunk_index: chunkIndex
+      }
+    });
+  }
+
+  // Ensure at least one chunk exists
+  if (chunks.length === 0 && text.trim().length > 0) {
+    chunks.push({
+      chunk_id: 'chunk_0',
+      text: text.trim(),
+      metadata: {
+        start_char: 0,
+        end_char: text.length,
+        chunk_index: 0
+      }
+    });
+  }
+
+  return chunks;
+}
+
+/**
+ * Legacy chunking function (kept for backward compatibility)
+ * @deprecated Use chunkTextSemantic instead
  */
 function chunkText(text: string, targetWords: number = 300, overlapWords: number = 150): DocumentChunk[] {
   const words = text.split(/\s+/).filter((w: string) => w.length > 0);
@@ -217,7 +290,6 @@ function chunkText(text: string, targetWords: number = 300, overlapWords: number
     startChar = endChar + 1;
   }
 
-  // Ensure at least one chunk exists
   if (chunks.length === 0 && text.trim().length > 0) {
     chunks.push({
       chunk_id: 'chunk_0',

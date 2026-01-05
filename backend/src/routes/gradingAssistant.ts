@@ -2,6 +2,12 @@ import express, { Request, Response } from 'express';
 import { pool } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { GradingAssistantAgent } from '../services/agents/GradingAssistantAgent';
+import {
+  validateRequired,
+  validatePositiveInteger,
+  validateRubricCriteria,
+  validatePoints
+} from '../middleware/validation';
 
 const router = express.Router();
 
@@ -10,7 +16,11 @@ const router = express.Router();
  * @desc    Generate tentative grade for a submission
  * @access  Private (Student - auto-generated on submission)
  */
-router.post('/generate-tentative-grade', authenticate, async (req: Request, res: Response): Promise<void> => {
+router.post('/generate-tentative-grade',
+  authenticate,
+  validateRequired('submissionId'),
+  validatePositiveInteger('submissionId', 'body'),
+  async (req: Request, res: Response): Promise<void> => {
   try {
     const { submissionId } = req.body;
     const userId = (req as any).user.id;
@@ -184,7 +194,13 @@ router.post('/finalize-grade/:tentativeGradeId', authenticate, async (req: Reque
  * @desc    Create a grading rubric for an assignment (Professor only)
  * @access  Private (Professor)
  */
-router.post('/create-rubric', authenticate, async (req: Request, res: Response): Promise<void> => {
+router.post('/create-rubric',
+  authenticate,
+  validateRequired('assignmentId', 'rubricName', 'criteria', 'totalPoints'),
+  validatePositiveInteger('assignmentId', 'body'),
+  validateRubricCriteria(),
+  validatePoints('totalPoints', 10000),
+  async (req: Request, res: Response): Promise<void> => {
   try {
     const { assignmentId, rubricName, criteria, totalPoints } = req.body;
     const userId = (req as any).user.id;

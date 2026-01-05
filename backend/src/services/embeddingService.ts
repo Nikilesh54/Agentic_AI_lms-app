@@ -1,10 +1,29 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
 
 dotenv.config();
 
-// Initialize Google AI client
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || '');
+// File-only logging (no console output)
+const LOG_PATH = path.join(__dirname, '../../api-debug.log');
+function logToFile(message: string) {
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(LOG_PATH, `[${timestamp}] ${message}\n`);
+}
+
+// Initialize Google AI client lazily to ensure env vars are loaded
+let genAI: GoogleGenerativeAI | null = null;
+
+function getGenAI(): GoogleGenerativeAI {
+  if (!genAI) {
+    if (!process.env.GOOGLE_AI_API_KEY) {
+      throw new Error('GOOGLE_AI_API_KEY environment variable is not set. Please check your .env file.');
+    }
+    genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+  }
+  return genAI;
+}
 
 /**
  * Generate embedding for a single text using Google's text-embedding-004 model
@@ -18,7 +37,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     }
 
     // Use Google's text-embedding-004 model (768 dimensions)
-    const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const model = getGenAI().getGenerativeModel({ model: 'text-embedding-004' });
 
     const result = await model.embedContent(text);
 
@@ -50,14 +69,14 @@ export async function generateEmbeddings(
   const embeddings: number[][] = [];
   const totalBatches = Math.ceil(texts.length / batchSize);
 
-  console.log(`Generating embeddings for ${texts.length} texts in ${totalBatches} batches...`);
+  logToFile(`Generating embeddings for ${texts.length} texts in ${totalBatches} batches...`);
 
   for (let i = 0; i < texts.length; i += batchSize) {
     const batch = texts.slice(i, i + batchSize);
     const batchNumber = Math.floor(i / batchSize) + 1;
 
     try {
-      console.log(`Processing batch ${batchNumber}/${totalBatches} (${batch.length} items)...`);
+      logToFile(`Processing batch ${batchNumber}/${totalBatches} (${batch.length} items)...`);
 
       // Process batch in parallel
       const batchEmbeddings = await Promise.all(
@@ -76,7 +95,7 @@ export async function generateEmbeddings(
     }
   }
 
-  console.log(`✓ Generated ${embeddings.length} embeddings successfully`);
+  logToFile(`✓ Generated ${embeddings.length} embeddings successfully`);
   return embeddings;
 }
 
@@ -135,7 +154,7 @@ export async function generateEmbeddingCached(
   useCache: boolean = true
 ): Promise<number[]> {
   if (useCache && embeddingCache.has(text)) {
-    console.log('Cache hit for embedding');
+    logToFile('Cache hit for embedding');
     return embeddingCache.get(text)!;
   }
 

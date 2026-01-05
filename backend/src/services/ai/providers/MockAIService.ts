@@ -24,7 +24,8 @@ export class MockAIService implements IAIService {
   async generateResponse(
     messages: AIMessage[],
     context: AIContext,
-    systemPrompt?: string
+    systemPrompt?: string,
+    options?: { jsonMode?: boolean }
   ): Promise<AIResponse> {
     // Simulate processing delay
     await this.simulateDelay(300, 800);

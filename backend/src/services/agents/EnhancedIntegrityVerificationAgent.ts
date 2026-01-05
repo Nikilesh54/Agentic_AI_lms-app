@@ -4,6 +4,17 @@ import { getAIService } from '../ai/AIServiceFactory';
 import { pool } from '../../config/database';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import fs from 'fs';
+import path from 'path';
+import { retryWithBackoff } from '../../utils/retry';
+import { AGENT_CONFIG } from '../../config/constants';
+
+// File-only logging (no console output)
+const LOG_PATH = path.join(__dirname, '../../../api-debug.log');
+function logToFile(message: string) {
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(LOG_PATH, `[${timestamp}] ${message}\n`);
+}
 
 /**
  * Enhanced Integrity Verification Agent
@@ -57,27 +68,29 @@ TRUST SCORING (Evidence-Based):
 - 30-49: Significant discrepancies between claim and source
 - 0-29: Information completely absent from source or contradicts it
 
-Output JSON format:
+CRITICAL: You MUST respond with ONLY valid JSON. Do not include markdown code blocks, explanations, or any text outside the JSON object.
+
+Output JSON format (respond with ONLY this JSON, nothing else):
 {
   "trust_score": <0-100>,
   "trust_level": "<highest|high|medium|lower|low>",
   "verification_details": [
     {
       "source": "<source name>",
-      "claimed_content": "<what chatbot said>",
-      "actual_content": "<what source actually says>",
+      "claimed_content": "<what chatbot said (keep under 200 chars)>",
+      "actual_content": "<relevant excerpt from source (keep under 300 chars)>",
       "match_quality": "<exact|paraphrase|partial|mismatch|missing>",
-      "evidence": "<specific proof>"
+      "evidence": "<specific proof (keep under 200 chars)>"
     }
   ],
   "hallucinations_detected": ["<list any fabricated claims>"],
-  "reasoning": "<overall assessment>",
-  "recommendations": "<advice for student>"
+  "reasoning": "<overall assessment (keep under 500 chars)>",
+  "recommendations": "<advice for student (keep under 300 chars)>"
 }`;
   }
 
   /**
-   * MAIN METHOD: Independently verify a chatbot response
+   * MAIN METHOD: Independently verify a chatbot response with retry logic
    */
   async verifyResponse(
     messageId: number,
@@ -88,7 +101,14 @@ Output JSON format:
     const startTime = Date.now();
 
     try {
-      console.log(`🔍 Starting independent verification for message ${messageId}`);
+      logToFile(`🔍 Starting independent verification for message ${messageId}`);
+
+      // Check cache first
+      const cachedResult = await this.getCachedVerification(messageId);
+      if (cachedResult) {
+        logToFile('✅ Using cached verification result');
+        return cachedResult;
+      }
 
       // Step 1: INDEPENDENTLY fetch actual source content
       const verifiedSources = await this.fetchAndVerifySources(
@@ -96,39 +116,91 @@ Output JSON format:
         courseId
       );
 
-      // Step 2: Build verification context with ACTUAL content
-      const verificationContext = this.buildVerificationContext(
-        chatbotResponse,
-        verifiedSources
-      );
+      // Step 2: Try verification with retry strategies
+      let verificationResult: EnhancedTrustScoreResult | null = null;
+      const maxAttempts = 3;
 
-      // Step 3: Use AI to compare chatbot claims vs actual content
-      const messages: AIMessage[] = [
-        {
-          role: 'system',
-          content: this.metadata.systemPrompt || ''
-        },
-        {
-          role: 'user',
-          content: verificationContext
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          logToFile(`📝 Verification attempt ${attempt}/${maxAttempts}`);
+
+          // Build verification context (optimized based on attempt)
+          const verificationContext = this.buildVerificationContext(
+            chatbotResponse,
+            verifiedSources
+          );
+
+          // Adjust system prompt based on attempt
+          const systemPrompt = attempt === 1
+            ? this.metadata.systemPrompt
+            : this.getSimplifiedSystemPrompt(attempt);
+
+          logToFile('='.repeat(80));
+          logToFile(`📤 VERIFICATION PROMPT (Attempt ${attempt}):`);
+          logToFile('='.repeat(80));
+          logToFile(verificationContext.substring(0, 500) + '...');
+          logToFile('='.repeat(80));
+
+          // Step 3: Use AI to compare chatbot claims vs actual content
+          const messages: AIMessage[] = [
+            {
+              role: 'system',
+              content: systemPrompt || ''
+            },
+            {
+              role: 'user',
+              content: verificationContext
+            }
+          ];
+
+          const aiService = getAIService();
+          const aiResponse = await aiService.generateResponse(
+            messages,
+            { conversationHistory: messages },
+            systemPrompt
+          );
+
+          logToFile('='.repeat(80));
+          logToFile(`📥 RAW GEMINI RESPONSE (Attempt ${attempt}):`);
+          logToFile('='.repeat(80));
+          logToFile(aiResponse.content.substring(0, 1000));
+          logToFile('='.repeat(80));
+
+          // Step 4: Parse verification result
+          verificationResult = this.parseVerificationResponse(
+            aiResponse.content,
+            verifiedSources
+          );
+
+          // Success! Break retry loop
+          if (verificationResult.trust_score > 0) {
+            logToFile(`✅ Verification succeeded on attempt ${attempt}`);
+            break;
+          }
+
+        } catch (attemptError: any) {
+          logToFile(`⚠️ Attempt ${attempt} failed: ${attemptError.message}`);
+
+          if (attempt === maxAttempts) {
+            throw attemptError; // Re-throw on last attempt
+          }
+
+          // Wait before retry (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
-      ];
+      }
 
-      const aiService = getAIService();
-      const aiResponse = await aiService.generateResponse(
-        messages,
-        { conversationHistory: messages },
-        this.metadata.systemPrompt
-      );
-
-      // Step 4: Parse verification result
-      const verificationResult = this.parseVerificationResponse(
-        aiResponse.content,
-        verifiedSources
-      );
+      // If no result after all attempts, use fallback
+      if (!verificationResult) {
+        logToFile('⚠️ All verification attempts failed, using fallback');
+        verificationResult = this.createFallbackResult(verifiedSources);
+      }
 
       // Step 5: Store detailed verification in database
       await this.storeTrustScore(messageId, verificationResult);
+
+      // Cache the result
+      await this.cacheVerification(messageId, verificationResult);
 
       // Step 6: Log the verification action
       const executionTime = Date.now() - startTime;
@@ -144,12 +216,12 @@ Output JSON format:
         executionTime
       );
 
-      console.log(`✅ Verification complete: Trust Score ${verificationResult.trust_score}/100`);
+      logToFile(`✅ Verification complete: Trust Score ${verificationResult.trust_score}/100 (${executionTime}ms)`);
 
       return verificationResult;
 
     } catch (error: any) {
-      console.error('❌ Error in enhanced verification:', error);
+      logToFile('❌ Error in enhanced verification: ' + error);
 
       // Log error
       await this.logVerificationAction(
@@ -162,16 +234,50 @@ Output JSON format:
       );
 
       // Return low-trust fallback
-      return {
-        trust_score: 30,
-        trust_level: 'lower',
-        reasoning: `Unable to verify response due to technical error: ${error.message}`,
-        verification_details: [],
-        hallucinations_detected: [],
-        recommendations: 'Verification failed. Please manually check the sources or consult your professor.',
-        evidence_summary: 'No evidence available due to verification error.'
-      };
+      return this.createFallbackResult([]);
     }
+  }
+
+  /**
+   * Get simplified system prompt for retry attempts
+   */
+  private getSimplifiedSystemPrompt(attempt: number): string {
+    if (attempt === 2) {
+      return `You are a verification agent. Compare the chatbot's claims against the source content provided.
+
+Respond with ONLY this JSON (no markdown, no extra text):
+{
+  "trust_score": <number 0-100>,
+  "trust_level": "<highest|high|medium|lower|low>",
+  "verification_details": [],
+  "hallucinations_detected": [],
+  "reasoning": "<brief assessment>",
+  "recommendations": "<brief advice>"
+}`;
+    }
+
+    // Attempt 3: Absolute minimum
+    return `Compare claims to sources. Respond with ONLY JSON: {"trust_score": <0-100>, "trust_level": "<level>", "verification_details": [], "hallucinations_detected": [], "reasoning": "<text>", "recommendations": "<text>"}`;
+  }
+
+  /**
+   * Create fallback verification result
+   */
+  private createFallbackResult(verifiedSources: VerifiedSource[]): EnhancedTrustScoreResult {
+    const verifiedCount = verifiedSources.filter(s => s.verification_status === 'verified').length;
+    const trustScore = verifiedCount > 0 ? 60 : 30;
+
+    return {
+      trust_score: trustScore,
+      trust_level: this.determineTrustLevel(trustScore),
+      reasoning: `Automated verification completed with ${verifiedCount} source(s) verified. Manual review recommended for complete assurance.`,
+      verification_details: [],
+      hallucinations_detected: [],
+      recommendations: verifiedCount > 0
+        ? 'Sources were located but detailed verification is incomplete. Review the cited sources to confirm accuracy.'
+        : 'Unable to verify sources. Please manually check the information or consult your professor.',
+      evidence_summary: `${verifiedCount}/${verifiedSources.length} sources independently verified.`
+    };
   }
 
   /**
@@ -233,7 +339,7 @@ Output JSON format:
 
       const chunksResult = await pool.query(chunksQuery, [source.source_id, courseId]);
 
-      console.log(`📊 Found ${chunksResult.rows.length} chunks for material ${source.source_id}`);
+      logToFile(`📊 Found ${chunksResult.rows.length} chunks for material ${source.source_id}`);
 
       if (chunksResult.rows.length === 0) {
         // Fallback: Try to get full content if no chunks available
@@ -282,16 +388,27 @@ Output JSON format:
       // Better to give verifier full context and let AI figure it out
       const material = chunksResult.rows[0];
 
-      console.log(`📚 Using ALL ${chunksResult.rows.length} chunks for verification (page filtering disabled due to PDF extraction limitations)`);
+      logToFile(`📚 Using ALL ${chunksResult.rows.length} chunks for verification (page filtering disabled due to PDF extraction limitations)`);
 
       const relevantChunks: string[] = chunksResult.rows.map(row => row.chunk_text);
 
-      // Don't truncate - give verifier as much context as possible
+      // Smart truncation at sentence boundaries - give verifier as much context as possible
       // Gemini can handle large contexts well
-      const relevantContent = relevantChunks.join('\n\n').substring(0, 15000); // Increased to 15k for full document context
+      const fullContent = relevantChunks.join('\n\n');
+      const relevantContent = this.smartTruncate(
+        fullContent,
+        AGENT_CONFIG.VERIFICATION_MAX_CONTENT_LENGTH
+      );
 
-      console.log(`📝 Final content length: ${relevantContent.length} chars, ${relevantChunks.length} chunks used`);
-      console.log(`📄 Content preview: ${relevantContent.substring(0, 200)}...`);
+      logToFile(`📝 Final content length: ${relevantContent.length} chars, ${relevantChunks.length} chunks used`);
+      logToFile(`📄 Content preview: ${relevantContent.substring(0, 200)}...`);
+
+      // DEBUG: Check if key statistics are present in the fetched content
+      logToFile('🔍 VERIFICATION DEBUG - Content checks:');
+      logToFile(`   - Contains "37%": ${relevantContent.includes('37%')}`);
+      logToFile(`   - Contains "95%": ${relevantContent.includes('95%')}`);
+      logToFile(`   - Contains "bullied": ${relevantContent.toLowerCase().includes('bullied')}`);
+      logToFile(`   - Contains "2019": ${relevantContent.includes('2019')}`);
 
       return {
         claimed: source,
@@ -306,7 +423,7 @@ Output JSON format:
       };
 
     } catch (error: any) {
-      console.error('Error verifying course material:', error);
+      logToFile('Error verifying course material: ' + error);
       return {
         claimed: source,
         actual_content: null,
@@ -330,16 +447,30 @@ Output JSON format:
     }
 
     try {
-      console.log(`🌐 Crawling: ${source.source_url}`);
+      logToFile(`🌐 Crawling: ${source.source_url}`);
 
-      // Fetch the web page
-      const response = await axios.get(source.source_url, {
-        timeout: 10000, // 10 second timeout
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (LMS Verification Bot)'
-        },
-        maxRedirects: 5
-      });
+      // Type guard: ensure source_url is not null
+      const url = source.source_url;
+      if (!url) {
+        throw new Error('Source URL is null');
+      }
+
+      // Fetch the web page with retry logic
+      const response = await retryWithBackoff(
+        async () => await axios.get(url, {
+          timeout: AGENT_CONFIG.WEB_CRAWL_TIMEOUT_MS,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (LMS Verification Bot)'
+          },
+          maxRedirects: 5
+        }),
+        {
+          maxRetries: 2, // Limited retries for web crawling
+          onRetry: (error, attempt) => {
+            logToFile(`🔄 Retrying crawl (attempt ${attempt}): ${url}`);
+          }
+        }
+      );
 
       // Parse HTML content
       const $ = cheerio.load(response.data);
@@ -357,7 +488,7 @@ Output JSON format:
       const cleanedContent = mainContent
         .replace(/\s+/g, ' ')
         .trim()
-        .substring(0, 5000); // Limit to 5000 chars
+        .substring(0, AGENT_CONFIG.WEB_CONTENT_MAX_LENGTH);
 
       if (!cleanedContent || cleanedContent.length < 50) {
         return {
@@ -380,7 +511,7 @@ Output JSON format:
       };
 
     } catch (error: any) {
-      console.error(`❌ Failed to crawl ${source.source_url}:`, error.message);
+      logToFile(`❌ Failed to crawl ${source.source_url}: ${error.message}`);
 
       let errorMessage = 'Failed to fetch URL';
       if (error.code === 'ENOTFOUND') {
@@ -402,110 +533,450 @@ Output JSON format:
 
   /**
    * Build verification context with actual vs claimed content
+   * Optimized to reduce token usage while maintaining accuracy
    */
   private buildVerificationContext(
     chatbotResponse: string,
     verifiedSources: VerifiedSource[]
   ): string {
-    let context = `# INDEPENDENT VERIFICATION TASK
+    // Extract key claims from chatbot response (reduce verbosity)
+    const keyClaims = this.extractKeyClaims(chatbotResponse);
 
-## Chatbot's Response (What it claimed):
-${chatbotResponse}
+    let context = `VERIFICATION TASK
 
-## ACTUAL SOURCE CONTENT (Independently Verified):
+Chatbot Claims:
+${keyClaims}
 
+Sources to Verify:
 `;
 
     verifiedSources.forEach((vs, index) => {
+      // Truncate actual content to relevant portions around key search terms
+      const relevantContent = this.extractRelevantContent(
+        vs.actual_content ?? '',
+        chatbotResponse,
+        1500 // Max chars per source
+      );
+
       context += `
-### Source ${index + 1}: ${vs.claimed.source_name}
-- **Type**: ${vs.claimed.source_type}
-- **Verification Status**: ${vs.verification_status}
-${vs.claimed.source_url ? `- **URL**: ${vs.claimed.source_url}` : ''}
-${vs.claimed.page_number ? `- **Page**: ${vs.claimed.page_number}` : ''}
+${index + 1}. ${vs.claimed.source_name}
+   Status: ${vs.verification_status}
+   ${vs.claimed.page_number ? `Page: ${vs.claimed.page_number}` : ''}
 
-**What Chatbot Claimed This Source Says:**
-"${vs.claimed.source_excerpt || 'No excerpt provided'}"
+   Content: ${relevantContent || `ERROR: ${vs.error || 'Could not verify'}`}
 
-**What Source ACTUALLY Says (Verified Content):**
-${vs.actual_content ? `"""
-${vs.actual_content}
-"""` : `❌ COULD NOT VERIFY: ${vs.error || 'Unknown error'}`}
-
----
 `;
     });
 
     context += `
-
-## Your Task:
-1. CAREFULLY read through the ENTIRE source content provided above
-2. Search for the information the chatbot claimed - look for the MEANING, not exact wording
-3. Remember: PDF extraction may change formatting (spaces, line breaks), but meaning stays same
-4. If you find the information, note it as VERIFIED with specific evidence
-5. If truly absent, mark as missing
-6. Assign trust score based on what you actually found (be fair and objective!)
-
-IMPORTANT: The source content above is the COMPLETE text from the database. Read it ALL carefully before concluding information is missing.
-
-Respond with the JSON format specified in your system prompt.`;
+Task: Verify each claim against source content. Respond with ONLY the JSON object (no markdown, no extra text).`;
 
     return context;
   }
 
   /**
-   * Parse AI verification response
+   * Extract key factual claims from chatbot response
+   */
+  private extractKeyClaims(response: string): string {
+    // Extract sentences with numbers, percentages, or specific facts
+    const sentences = response.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const keyClaims: string[] = [];
+
+    for (const sentence of sentences) {
+      const trimmed = sentence.trim();
+      // Keep sentences with numbers, percentages, dates, or citations
+      if (
+        /\d+/.test(trimmed) ||
+        /%/.test(trimmed) ||
+        /\[Source:/i.test(trimmed) ||
+        /(according to|based on|shows that|indicates)/i.test(trimmed)
+      ) {
+        keyClaims.push(trimmed);
+      }
+    }
+
+    // If no specific claims found, use first 500 chars
+    if (keyClaims.length === 0) {
+      return response.substring(0, 500) + (response.length > 500 ? '...' : '');
+    }
+
+    return keyClaims.join('. ') + '.';
+  }
+
+  /**
+   * Extract most relevant portions of content based on search terms
+   */
+  private extractRelevantContent(
+    content: string,
+    query: string,
+    maxLength: number
+  ): string {
+    if (!content || content.length === 0) {
+      return '';
+    }
+
+    // Extract numbers and key terms from query
+    const numbers = query.match(/\d+%?/g) || [];
+    const keyTerms = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(w => w.length > 4 && !['about', 'according', 'based'].includes(w))
+      .slice(0, 5);
+
+    const searchTerms = [...numbers, ...keyTerms];
+
+    if (searchTerms.length === 0) {
+      return this.smartTruncate(content, maxLength);
+    }
+
+    // Find positions of search terms
+    const positions: number[] = [];
+    const contentLower = content.toLowerCase();
+
+    for (const term of searchTerms) {
+      let pos = contentLower.indexOf(term.toLowerCase());
+      while (pos !== -1) {
+        positions.push(pos);
+        pos = contentLower.indexOf(term.toLowerCase(), pos + 1);
+      }
+    }
+
+    if (positions.length === 0) {
+      return this.smartTruncate(content, maxLength);
+    }
+
+    // Sort positions and extract context around matches
+    positions.sort((a, b) => a - b);
+    const chunks: string[] = [];
+    let totalLength = 0;
+
+    for (const pos of positions) {
+      if (totalLength >= maxLength) break;
+
+      // Extract context (200 chars before and after)
+      const start = Math.max(0, pos - 200);
+      const end = Math.min(content.length, pos + 200);
+      const chunk = content.substring(start, end);
+
+      // Avoid duplicates
+      if (!chunks.some(c => c.includes(chunk.substring(10, 30)))) {
+        chunks.push((start > 0 ? '...' : '') + chunk + (end < content.length ? '...' : ''));
+        totalLength += chunk.length;
+      }
+    }
+
+    return chunks.join(' ');
+  }
+
+  /**
+   * Parse AI verification response with robust error handling and fallback strategies
    */
   private parseVerificationResponse(
     responseContent: string,
     verifiedSources: VerifiedSource[]
   ): EnhancedTrustScoreResult {
-    try {
-      // Extract JSON
-      const jsonMatch = responseContent.match(/```json\n([\s\S]*?)\n```/) ||
-                       responseContent.match(/\{[\s\S]*\}/);
+    logToFile('🔄 Starting robust JSON parsing...');
 
-      if (!jsonMatch) {
-        throw new Error('Could not parse JSON from verification response');
+    // Strategy 1: Try direct JSON parse (Gemini returning pure JSON)
+    try {
+      const result = this.tryDirectJsonParse(responseContent, verifiedSources);
+      if (result) {
+        logToFile('✅ Strategy 1 (Direct JSON) succeeded');
+        return result;
+      }
+    } catch (error) {
+      logToFile(`⚠️ Strategy 1 failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Strategy 2: Extract JSON from markdown code blocks
+    try {
+      const result = this.tryMarkdownJsonExtraction(responseContent, verifiedSources);
+      if (result) {
+        logToFile('✅ Strategy 2 (Markdown extraction) succeeded');
+        return result;
+      }
+    } catch (error) {
+      logToFile(`⚠️ Strategy 2 failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Strategy 3: Find and extract any JSON object in the response
+    try {
+      const result = this.tryFuzzyJsonExtraction(responseContent, verifiedSources);
+      if (result) {
+        logToFile('✅ Strategy 3 (Fuzzy extraction) succeeded');
+        return result;
+      }
+    } catch (error) {
+      logToFile(`⚠️ Strategy 3 failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Strategy 4: Try to extract trust_score even if full JSON fails
+    try {
+      const partialResult = this.tryPartialExtraction(responseContent, verifiedSources);
+      if (partialResult) {
+        logToFile('✅ Strategy 4 (Partial extraction) succeeded');
+        return partialResult;
+      }
+    } catch (error) {
+      logToFile(`⚠️ Strategy 4 failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Strategy 5: Heuristic analysis as last resort
+    logToFile('⚠️ All parsing strategies failed, using heuristic analysis');
+    return this.heuristicAnalysis(responseContent, verifiedSources);
+  }
+
+  /**
+   * Strategy 1: Try to parse response as pure JSON
+   */
+  private tryDirectJsonParse(
+    content: string,
+    verifiedSources: VerifiedSource[]
+  ): EnhancedTrustScoreResult | null {
+    try {
+      const trimmed = content.trim();
+      if (!trimmed.startsWith('{')) {
+        return null;
       }
 
-      const jsonText = jsonMatch[1] || jsonMatch[0];
-      const parsed = JSON.parse(jsonText);
-
-      const trustLevel = this.determineTrustLevel(parsed.trust_score || 50);
-
-      // Build evidence summary
-      const verifiedCount = verifiedSources.filter(s => s.verification_status === 'verified').length;
-      const totalCount = verifiedSources.length;
-      const evidenceSummary = `Verified ${verifiedCount}/${totalCount} sources independently. ${
-        parsed.hallucinations_detected?.length > 0
-          ? `⚠️ ${parsed.hallucinations_detected.length} hallucination(s) detected.`
-          : '✓ No hallucinations detected.'
-      }`;
-
-      return {
-        trust_score: parsed.trust_score || 50,
-        trust_level: trustLevel,
-        reasoning: parsed.reasoning || 'Unable to generate detailed reasoning',
-        verification_details: parsed.verification_details || [],
-        hallucinations_detected: parsed.hallucinations_detected || [],
-        recommendations: parsed.recommendations || 'Please verify information with your professor.',
-        evidence_summary: evidenceSummary
-      };
-
+      const parsed = JSON.parse(trimmed);
+      return this.buildTrustScoreResult(parsed, verifiedSources);
     } catch (error) {
-      console.error('Error parsing verification response:', error);
-
-      return {
-        trust_score: 50,
-        trust_level: 'medium',
-        reasoning: 'Unable to parse detailed verification. Manual review recommended.',
-        verification_details: [],
-        hallucinations_detected: [],
-        recommendations: 'Verification parsing failed. Please consult your professor.',
-        evidence_summary: 'Verification incomplete due to parsing error.'
-      };
+      return null;
     }
+  }
+
+  /**
+   * Strategy 2: Extract JSON from markdown code blocks
+   */
+  private tryMarkdownJsonExtraction(
+    content: string,
+    verifiedSources: VerifiedSource[]
+  ): EnhancedTrustScoreResult | null {
+    // Try different markdown patterns
+    const patterns = [
+      /```json\s*\n([\s\S]*?)\n```/,
+      /```\s*\n([\s\S]*?)\n```/,
+      /```json([\s\S]*?)```/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = content.match(pattern);
+      if (match) {
+        try {
+          const jsonText = match[1].trim();
+          const parsed = JSON.parse(jsonText);
+          return this.buildTrustScoreResult(parsed, verifiedSources);
+        } catch (error) {
+          continue;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Strategy 3: Fuzzy extraction - find any JSON object
+   */
+  private tryFuzzyJsonExtraction(
+    content: string,
+    verifiedSources: VerifiedSource[]
+  ): EnhancedTrustScoreResult | null {
+    // Find the first { and try to extract a complete JSON object
+    const startIdx = content.indexOf('{');
+    if (startIdx === -1) {
+      return null;
+    }
+
+    // Try to find matching closing brace
+    let braceCount = 0;
+    let inString = false;
+    let escapeNext = false;
+
+    for (let i = startIdx; i < content.length; i++) {
+      const char = content[i];
+
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"' && !escapeNext) {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === '{') {
+        braceCount++;
+      } else if (char === '}') {
+        braceCount--;
+        if (braceCount === 0) {
+          // Found complete JSON object
+          const jsonText = content.substring(startIdx, i + 1);
+          try {
+            const parsed = JSON.parse(jsonText);
+            return this.buildTrustScoreResult(parsed, verifiedSources);
+          } catch (error) {
+            return null;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Strategy 4: Extract partial information even if JSON is incomplete
+   */
+  private tryPartialExtraction(
+    content: string,
+    verifiedSources: VerifiedSource[]
+  ): EnhancedTrustScoreResult | null {
+    try {
+      // Try to extract key fields using regex
+      const trustScoreMatch = content.match(/"trust_score"\s*:\s*(\d+)/);
+      const trustLevelMatch = content.match(/"trust_level"\s*:\s*"([^"]+)"/);
+      const reasoningMatch = content.match(/"reasoning"\s*:\s*"([^"]+)"/);
+
+      if (trustScoreMatch) {
+        const trustScore = parseInt(trustScoreMatch[1]);
+        const trustLevel = trustLevelMatch ? trustLevelMatch[1] : this.determineTrustLevel(trustScore);
+        const reasoning = reasoningMatch ? reasoningMatch[1] : 'Partial verification completed (JSON parsing incomplete)';
+
+        logToFile(`Partial extraction: score=${trustScore}, level=${trustLevel}`);
+
+        return {
+          trust_score: trustScore,
+          trust_level: trustLevel as TrustLevel,
+          reasoning,
+          verification_details: [],
+          hallucinations_detected: [],
+          recommendations: 'Partial verification completed. Please review sources manually for complete verification.',
+          evidence_summary: this.buildEvidenceSummary(verifiedSources, [])
+        };
+      }
+    } catch (error) {
+      logToFile(`Partial extraction error: ${error}`);
+    }
+
+    return null;
+  }
+
+  /**
+   * Strategy 5: Heuristic analysis when JSON parsing completely fails
+   */
+  private heuristicAnalysis(
+    content: string,
+    verifiedSources: VerifiedSource[]
+  ): EnhancedTrustScoreResult {
+    logToFile('Running heuristic analysis on response content');
+
+    const contentLower = content.toLowerCase();
+
+    // Look for positive indicators
+    const positiveIndicators = [
+      'verified', 'confirmed', 'accurate', 'correct', 'found in source',
+      'matches', 'consistent', 'present in', 'located in'
+    ];
+
+    // Look for negative indicators
+    const negativeIndicators = [
+      'not found', 'missing', 'absent', 'incorrect', 'fabricated',
+      'hallucination', 'discrepancy', 'contradiction', 'mismatch'
+    ];
+
+    let positiveCount = 0;
+    let negativeCount = 0;
+
+    for (const indicator of positiveIndicators) {
+      if (contentLower.includes(indicator)) {
+        positiveCount++;
+      }
+    }
+
+    for (const indicator of negativeIndicators) {
+      if (contentLower.includes(indicator)) {
+        negativeCount++;
+      }
+    }
+
+    // Calculate heuristic trust score
+    let trustScore = 50; // Start neutral
+
+    if (positiveCount > negativeCount) {
+      trustScore = Math.min(90, 50 + (positiveCount - negativeCount) * 10);
+    } else if (negativeCount > positiveCount) {
+      trustScore = Math.max(20, 50 - (negativeCount - positiveCount) * 10);
+    }
+
+    const verifiedCount = verifiedSources.filter(s => s.verification_status === 'verified').length;
+    if (verifiedCount === 0) {
+      trustScore = Math.min(trustScore, 40);
+    }
+
+    logToFile(`Heuristic analysis: positive=${positiveCount}, negative=${negativeCount}, score=${trustScore}`);
+
+    return {
+      trust_score: trustScore,
+      trust_level: this.determineTrustLevel(trustScore),
+      reasoning: `Automated heuristic analysis (JSON parsing failed). Positive indicators: ${positiveCount}, Negative indicators: ${negativeCount}. Manual review recommended.`,
+      verification_details: [],
+      hallucinations_detected: [],
+      recommendations: 'Verification system encountered parsing issues. Please manually verify the information with course materials or consult your professor.',
+      evidence_summary: `Heuristic analysis based on ${verifiedCount}/${verifiedSources.length} verified sources.`
+    };
+  }
+
+  /**
+   * Build trust score result from parsed JSON
+   */
+  private buildTrustScoreResult(
+    parsed: any,
+    verifiedSources: VerifiedSource[]
+  ): EnhancedTrustScoreResult {
+    const trustScore = typeof parsed.trust_score === 'number' ? parsed.trust_score : 50;
+    const trustLevel = parsed.trust_level || this.determineTrustLevel(trustScore);
+
+    return {
+      trust_score: trustScore,
+      trust_level: trustLevel as TrustLevel,
+      reasoning: parsed.reasoning || 'Verification completed',
+      verification_details: Array.isArray(parsed.verification_details) ? parsed.verification_details : [],
+      hallucinations_detected: Array.isArray(parsed.hallucinations_detected) ? parsed.hallucinations_detected : [],
+      recommendations: parsed.recommendations || 'Please review the sources and verification details.',
+      evidence_summary: this.buildEvidenceSummary(
+        verifiedSources,
+        parsed.hallucinations_detected || []
+      )
+    };
+  }
+
+  /**
+   * Build evidence summary string
+   */
+  private buildEvidenceSummary(
+    verifiedSources: VerifiedSource[],
+    hallucinations: string[]
+  ): string {
+    const verifiedCount = verifiedSources.filter(s => s.verification_status === 'verified').length;
+    const totalCount = verifiedSources.length;
+
+    return `Verified ${verifiedCount}/${totalCount} sources independently. ${
+      hallucinations.length > 0
+        ? `⚠️ ${hallucinations.length} hallucination(s) detected.`
+        : '✓ No hallucinations detected.'
+    }`;
   }
 
   /**
@@ -594,6 +1065,96 @@ Respond with the JSON format specified in your system prompt.`;
       executionTime,
       errorMessage || null
     ]);
+  }
+
+  /**
+   * Smart truncation at sentence boundaries to avoid cutting off mid-sentence
+   * @param content - Content to truncate
+   * @param maxLength - Maximum length in characters
+   * @returns Truncated content
+   */
+  private smartTruncate(content: string, maxLength: number): string {
+    if (content.length <= maxLength) {
+      return content;
+    }
+
+    // Truncate at maxLength
+    let truncated = content.substring(0, maxLength);
+
+    // Find the last sentence boundary (., !, ?, or newline)
+    const sentenceBoundaries = ['. ', '! ', '? ', '\n'];
+    let lastBoundary = -1;
+
+    for (const boundary of sentenceBoundaries) {
+      const index = truncated.lastIndexOf(boundary);
+      if (index > lastBoundary) {
+        lastBoundary = index;
+      }
+    }
+
+    // If we found a sentence boundary in the last 20% of the content, truncate there
+    if (lastBoundary > maxLength * 0.8) {
+      truncated = truncated.substring(0, lastBoundary + 1);
+    }
+
+    // Add indicator that content was truncated
+    if (content.length > truncated.length) {
+      truncated += '\n\n[Content truncated for length. Full document contains more information.]';
+    }
+
+    return truncated;
+  }
+
+  /**
+   * Get cached verification result
+   */
+  private async getCachedVerification(messageId: number): Promise<EnhancedTrustScoreResult | null> {
+    try {
+      const result = await pool.query(
+        'SELECT * FROM message_trust_scores WHERE message_id = $1',
+        [messageId]
+      );
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+
+      // Parse stored details
+      const details = row.source_verification_details
+        ? JSON.parse(row.source_verification_details)
+        : { verification_details: [], evidence_summary: '' };
+
+      return {
+        trust_score: row.trust_score,
+        trust_level: row.trust_level,
+        reasoning: row.verification_reasoning,
+        verification_details: details.verification_details || [],
+        hallucinations_detected: row.conflicts_detected || [],
+        recommendations: 'Cached verification result',
+        evidence_summary: details.evidence_summary || 'Cached result'
+      };
+    } catch (error) {
+      logToFile(`Cache lookup error: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Cache verification result
+   */
+  private async cacheVerification(
+    messageId: number,
+    result: EnhancedTrustScoreResult
+  ): Promise<void> {
+    try {
+      // The result is already stored in the database by storeTrustScore
+      // This method is a placeholder for future Redis/in-memory caching
+      logToFile(`Cached verification result for message ${messageId}`);
+    } catch (error) {
+      logToFile(`Cache storage error: ${error}`);
+    }
   }
 
   // Implement abstract method from SimpleBaseAgent

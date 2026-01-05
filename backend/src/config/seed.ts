@@ -16,9 +16,12 @@ export const seedRootUser = async () => {
       return;
     }
 
-    // Hash the default password
+    // Hash the default password from environment variable
     const saltRounds = 10;
-    const defaultPassword = 'Nikvtpass@2025'; // You should change this after first login
+    const defaultPassword = process.env.SEED_DEFAULT_PASSWORD;
+    if (!defaultPassword) {
+      throw new Error('SEED_DEFAULT_PASSWORD environment variable must be set to seed the database');
+    }
     const passwordHash = await bcrypt.hash(defaultPassword, saltRounds);
 
     // Insert root user
@@ -36,7 +39,7 @@ export const seedRootUser = async () => {
       role: result.rows[0].role,
       status: result.rows[0].status
     });
-    console.log('Default password: Nikvtpass@2025');
+    console.log('Default password: [Set via SEED_DEFAULT_PASSWORD env var]');
     console.log('IMPORTANT: Please change this password after first login!');
   } catch (error) {
     console.error('Error seeding root user:', error);

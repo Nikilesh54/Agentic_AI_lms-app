@@ -9,15 +9,19 @@ import {
   AIServiceConfig,
   ToolCall
 } from '../types';
+import { retryWithBackoff } from '../../../utils/retry';
+import { AIRateLimiter } from '../../../utils/rateLimiter';
+import { AI_SERVICE } from '../../../config/constants';
 
 /**
  * Google AI (Gemini) Service Implementation
- * Uses Google's Gemini API for AI-powered responses
+ * Uses Google's Gemini API for AI-powered responses with rate limiting
  */
 export class GeminiAIService implements IAIService {
   private genAI: GoogleGenerativeAI;
   private model: GenerativeModel;
   private config: AIServiceConfig;
+  private rateLimiter: AIRateLimiter;
 
   constructor(config: AIServiceConfig) {
     if (!config.apiKey) {
@@ -26,6 +30,9 @@ export class GeminiAIService implements IAIService {
 
     this.config = config;
     this.genAI = new GoogleGenerativeAI(config.apiKey);
+
+    // Initialize rate limiter (60 requests per minute by default)
+    this.rateLimiter = new AIRateLimiter(60, 60000);
 
     // Initialize the model with configuration
     // Note: We don't set tools here - we'll set them per-request based on context
@@ -167,16 +174,26 @@ export class GeminiAIService implements IAIService {
   async generateResponse(
     messages: AIMessage[],
     context: AIContext,
-    systemPrompt?: string
+    systemPrompt?: string,
+    options?: { jsonMode?: boolean }
   ): Promise<AIResponse> {
     try {
+      // Apply rate limiting before making API call
+      const rateLimitKey = context.courseMetadata?.id?.toString() || 'global';
+      await this.rateLimiter.checkLimit(rateLimitKey);
+
       // Build context information
       const contextString = this.buildContextString(context);
 
       // Combine system prompt with context
-      const fullSystemPrompt = systemPrompt
+      let fullSystemPrompt = systemPrompt
         ? `${systemPrompt}\n\n**Context Information:**\n${contextString}`
         : `**Context Information:**\n${contextString}`;
+
+      // Add JSON mode instruction if requested
+      if (options?.jsonMode) {
+        fullSystemPrompt += '\n\nCRITICAL: Respond with ONLY valid JSON. No markdown code blocks, no explanations, just the JSON object.';
+      }
 
       // Convert messages to Gemini format
       const geminiMessages = this.convertMessagesToGeminiFormat(messages, fullSystemPrompt);
@@ -189,16 +206,37 @@ export class GeminiAIService implements IAIService {
         console.log('🌐 Using Google Search grounding for this response...');
       }
 
-      // Generate response
-      const chat = modelToUse.startChat({
-        history: geminiMessages.slice(0, -1), // All messages except the last one
-      });
+      if (options?.jsonMode) {
+        console.log('📝 Using JSON mode for structured output');
+      }
 
-      const lastMessage = geminiMessages[geminiMessages.length - 1];
-      const result = await chat.sendMessage(lastMessage.parts.map(p => p.text).join('\n'));
+      // Generate response with retry logic and exponential backoff
+      const result = await retryWithBackoff(
+        async () => {
+          const chat = modelToUse.startChat({
+            history: geminiMessages.slice(0, -1), // All messages except the last one
+          });
+
+          const lastMessage = geminiMessages[geminiMessages.length - 1];
+          return await chat.sendMessage(lastMessage.parts.map(p => p.text).join('\n'));
+        },
+        {
+          maxRetries: AI_SERVICE.MAX_RETRIES,
+          initialDelayMs: AI_SERVICE.INITIAL_RETRY_DELAY_MS,
+          maxDelayMs: AI_SERVICE.MAX_RETRY_DELAY_MS,
+          onRetry: (error, attempt) => {
+            console.warn(`🔄 Gemini API retry attempt ${attempt}:`, error.message);
+          },
+        }
+      );
 
       const response = result.response;
-      const text = response.text();
+      let text = response.text();
+
+      // In JSON mode, try to clean up the response
+      if (options?.jsonMode) {
+        text = this.cleanJsonResponse(text);
+      }
 
       // Calculate confidence based on response characteristics
       const confidence = await this.calculateConfidence(text, context);
@@ -229,6 +267,24 @@ export class GeminiAIService implements IAIService {
       console.error('Gemini API Error:', error);
       throw new Error(`Failed to generate response: ${error.message}`);
     }
+  }
+
+  /**
+   * Clean JSON response by removing markdown and extra text
+   */
+  private cleanJsonResponse(text: string): string {
+    // Remove markdown code blocks
+    let cleaned = text.replace(/```json\s*\n/g, '').replace(/```\s*$/g, '');
+
+    // Try to extract just the JSON object
+    const jsonStart = cleaned.indexOf('{');
+    const jsonEnd = cleaned.lastIndexOf('}');
+
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+    }
+
+    return cleaned.trim();
   }
 
   async *streamResponse(
@@ -303,7 +359,10 @@ Student message: "${message}"
 
 Respond with ONLY the JSON object, no other text.`;
 
-      const result = await this.model.generateContent(prompt);
+      const result = await retryWithBackoff(
+        async () => await this.model.generateContent(prompt),
+        { maxRetries: 2 } // Fewer retries for intent analysis
+      );
       const text = result.response.text();
 
       // Try to parse JSON from response

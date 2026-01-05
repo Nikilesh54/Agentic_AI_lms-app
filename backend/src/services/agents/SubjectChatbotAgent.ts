@@ -4,6 +4,7 @@ import { getAIService } from '../ai/AIServiceFactory';
 import { pool } from '../../config/database';
 import { WebSearchService } from '../search/WebSearchService';
 import { searchCourseMaterials as vectorSearchCourseMaterials, getCourseMaterialStats } from '../vectorSearch';
+import { AGENT_CONFIG, VECTOR_SEARCH } from '../../config/constants';
 
 /**
  * Subject-Specific Chatbot Agent
@@ -139,7 +140,7 @@ Would you like me to help you understand what skills and certifications can help
       const relevantMaterials = await this.searchCourseMaterials(
         courseId,
         message.content,
-        30 // Get top 30 most relevant chunks for comprehensive context
+        AGENT_CONFIG.CHATBOT_SEARCH_LIMIT
       );
 
       // Check if we should search the web (if course materials are insufficient)
@@ -152,7 +153,7 @@ Would you like me to help you understand what skills and certifications can help
       if (shouldSearchWeb) {
         console.log('📡 Course materials insufficient, searching the web...');
         webSearchResults = await webSearchService.searchWithContent(message.content, {
-          maxResults: 3,
+          maxResults: AGENT_CONFIG.WEB_SEARCH_MAX_RESULTS,
           safeSearch: true
         });
 
@@ -266,11 +267,17 @@ Please provide a comprehensive, helpful answer.`;
   private async searchCourseMaterials(
     courseId: number,
     query: string,
-    limit: number = 30  // Increased from 20 to get more comprehensive context
+    limit: number = AGENT_CONFIG.CHATBOT_SEARCH_LIMIT
   ): Promise<CourseMaterial[]> {
     try {
       // Get material stats for logging
       const stats = await getCourseMaterialStats(courseId);
+
+      // Log warning if no materials are available
+      if (stats.totalChunks === 0) {
+        console.warn(`⚠️ No course materials indexed for course ${courseId}`);
+      }
+
       console.log(
         `Searching ${stats.totalChunks} chunks from ${stats.processedMaterials} materials ` +
         `(${stats.unprocessedMaterials} unprocessed)`
@@ -279,7 +286,7 @@ Please provide a comprehensive, helpful answer.`;
       // Use vector search to find semantically relevant chunks
       const searchResults = await vectorSearchCourseMaterials(courseId, query, {
         topK: limit,
-        minSimilarity: 0.5,  // Only include chunks with >50% similarity (lowered from 0.6 for better recall)
+        minSimilarity: VECTOR_SEARCH.MIN_SIMILARITY,
         includeMetadata: true
       });
 
@@ -312,40 +319,48 @@ Please provide a comprehensive, helpful answer.`;
   }
 
   /**
-   * Extract sources from AI response
+   * Extract sources from AI response with proper deduplication
    */
   private extractSources(
     content: string,
     courseMaterials: CourseMaterial[],
     webSearchResults: any[] = []
   ): ResponseSource[] {
-    const sources: ResponseSource[] = [];
+    // Use Map for deduplication - key is unique identifier
+    const sourcesMap = new Map<string, ResponseSource>();
 
-    // Extract sources from course materials mentioned in the response
+    // Extract sources from course materials - only if explicitly referenced
     courseMaterials.forEach(material => {
-      // Check if this material is referenced in the response
-      if (content.includes(material.file_name)) {
-        sources.push({
+      const isExplicitlyReferenced = content.includes(material.file_name);
+      const fileNameWithoutExt = material.file_name.replace(/\.[^/.]+$/, '');
+      const isPartiallyReferenced = content.includes(fileNameWithoutExt);
+
+      // FIXED: Only include if explicitly mentioned (removed hasHighSimilarity check)
+      if (isExplicitlyReferenced || isPartiallyReferenced) {
+        const key = `material_${material.id}`;
+        sourcesMap.set(key, {
           source_type: 'course_material',
           source_id: material.id,
           source_name: material.file_name,
           source_url: null,
           source_excerpt: this.extractExcerpt(content, material.file_name),
           page_number: this.extractPageNumber(content, material.file_name),
-          relevance_score: 0.9
+          relevance_score: material.similarity_score || 0.9
         });
       }
     });
 
     // Extract internet sources from web search results
     webSearchResults.forEach(result => {
-      // Check if this web result is referenced in the response
+      if (!result.url) return;
+
       const isReferenced = content.includes(result.title) ||
-                          (result.url && content.includes(result.url)) ||
+                          content.includes(result.url) ||
                           content.toLowerCase().includes(result.snippet.toLowerCase().substring(0, 50));
 
-      if (isReferenced && result.url) {
-        sources.push({
+      if (isReferenced) {
+        const key = `url_${result.url}`;
+        sourcesMap.set(key, {
           source_type: 'internet',
           source_id: null,
           source_name: result.title,
@@ -357,18 +372,23 @@ Please provide a comprehensive, helpful answer.`;
       }
     });
 
-    // Extract internet sources from citation format in response (URLs)
-    const urlRegex = /\[Source:.*?URL:\s*(https?:\/\/[^\s\]]+).*?\]/g;
+    // Extract URLs from response content
+    const urlPattern = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/gi;
     let urlMatch;
-    while ((urlMatch = urlRegex.exec(content)) !== null) {
-      const url = urlMatch[1];
-      const sourceNameMatch = content.match(/\[Source:\s*([^,]+),\s*URL:/);
-      const sourceName = sourceNameMatch ? sourceNameMatch[1].trim() : 'External Source';
+    while ((urlMatch = urlPattern.exec(content)) !== null) {
+      const url = urlMatch[0];
+      const key = `url_${url}`;
 
-      // Avoid duplicates
-      const alreadyAdded = sources.some(s => s.source_url === url);
-      if (!alreadyAdded) {
-        sources.push({
+      // Only add if not already in map
+      if (!sourcesMap.has(key)) {
+        // Try to find a source name near the URL
+        const contextStart = Math.max(0, urlMatch.index - 100);
+        const contextEnd = Math.min(content.length, urlMatch.index + urlMatch[0].length + 100);
+        const context = content.substring(contextStart, contextEnd);
+        const sourceNameMatch = context.match(/\[Source:\s*([^,\]]+)/i);
+        const sourceName = sourceNameMatch ? sourceNameMatch[1].trim() : 'External Source';
+
+        sourcesMap.set(key, {
           source_type: 'internet',
           source_id: null,
           source_name: sourceName,
@@ -380,7 +400,7 @@ Please provide a comprehensive, helpful answer.`;
       }
     }
 
-    return sources;
+    return Array.from(sourcesMap.values());
   }
 
   /**
@@ -407,10 +427,35 @@ Please provide a comprehensive, helpful answer.`;
   }
 
   /**
-   * Store sources in database
+   * Store sources in database with transaction management
    */
   private async storeSources(messageId: number, sources: ResponseSource[]): Promise<void> {
-    for (const source of sources) {
+    if (sources.length === 0) {
+      return;
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // Use batch insert for better performance and atomicity
+      const values = sources.map((source, index) => {
+        const baseIndex = index * 8;
+        return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8})`;
+      }).join(', ');
+
+      const params = sources.flatMap(source => [
+        messageId,
+        source.source_type,
+        source.source_id,
+        source.source_name,
+        source.source_url,
+        source.source_excerpt,
+        source.page_number,
+        source.relevance_score
+      ]);
+
       const query = `
         INSERT INTO response_sources (
           message_id,
@@ -421,19 +466,19 @@ Please provide a comprehensive, helpful answer.`;
           source_excerpt,
           page_number,
           relevance_score
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ) VALUES ${values}
       `;
 
-      await pool.query(query, [
-        messageId,
-        source.source_type,
-        source.source_id,
-        source.source_name,
-        source.source_url,
-        source.source_excerpt,
-        source.page_number,
-        source.relevance_score
-      ]);
+      await client.query(query, params);
+      await client.query('COMMIT');
+
+      console.log(`✓ Stored ${sources.length} sources in transaction`);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error storing sources, transaction rolled back:', error);
+      throw new Error(`Failed to store sources: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      client.release();
     }
   }
 

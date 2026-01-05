@@ -56,6 +56,12 @@ router.post('/signup', async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Verify JWT secret is configured
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw new Error('JWT_SECRET environment variable is not set');
+    }
+
     // Generate JWT token
     const token = jwt.sign(
       {
@@ -63,7 +69,7 @@ router.post('/signup', async (req, res) => {
         email: newUser.rows[0].email,
         role: newUser.rows[0].role
       },
-      process.env.JWT_SECRET || 'your-secret-key',
+      jwtSecret,
       { expiresIn: '7d' }
     );
 
@@ -134,6 +140,12 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    // Verify JWT secret is configured
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw new Error('JWT_SECRET environment variable is not set');
+    }
+
     // Generate JWT token
     console.log('Generating JWT token...');
     const token = jwt.sign(
@@ -142,7 +154,7 @@ router.post('/login', async (req, res) => {
         email: user.rows[0].email,
         role: user.rows[0].role
       },
-      process.env.JWT_SECRET || 'your-secret-key',
+      jwtSecret,
       { expiresIn: '7d' }
     );
 

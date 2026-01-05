@@ -28,10 +28,17 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
+    // Verify JWT secret is configured
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('CRITICAL: JWT_SECRET environment variable is not set!');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
     // Verify token
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || 'your-secret-key'
+      jwtSecret
     ) as { userId: number; email: string; role: string };
 
     // Fetch user from database to ensure they still exist and get current status
