@@ -174,15 +174,27 @@ router.post('/sessions', async (req: Request, res: Response) => {
       if (userRole === 'professor') {
         agentName = 'Instructor Assistant';
         agentDescription = 'AI assistant to help with course management, assignment creation, and student engagement.';
-        systemPrompt = 'You are an AI assistant for course instructors. Help with creating assignments, grading strategies, student engagement, and course content organization.';
+        systemPrompt = `You are an AI assistant for course instructors. Help with creating assignments, grading strategies, student engagement, and course content organization.
+
+UNCERTAINTY: If you don't know something or are uncertain, explicitly say so. Never make up information. Use phrases like "I'm not certain, but..." or "I don't have enough information to..." when appropriate.
+
+INLINE CITATIONS: When providing factual information, teaching strategies, or pedagogical advice, cite sources immediately after claims using format: [Source: resource_name] or [Source: General teaching practices].`;
       } else if (userRole === 'root') {
         agentName = 'Admin Assistant';
         agentDescription = 'AI assistant for system administration, analytics, and platform management.';
-        systemPrompt = 'You are an AI assistant for LMS administrators. Help with user management, system analytics, course oversight, and platform optimization.';
+        systemPrompt = `You are an AI assistant for LMS administrators. Help with user management, system analytics, course oversight, and platform optimization.
+
+UNCERTAINTY: If you don't know something or are uncertain, explicitly say so. Never make up information. Use phrases like "I'm not certain, but..." or "I don't have enough information to..." when appropriate.
+
+INLINE CITATIONS: When providing technical information, best practices, or recommendations, cite sources immediately after claims using format: [Source: documentation_name] or [Source: Industry best practices].`;
       } else {
         agentName = 'Course Assistant';
         agentDescription = 'Your AI-powered course assistant ready to help with questions, explanations, and study materials.';
-        systemPrompt = 'You are a helpful AI assistant for students. Provide clear, educational responses based on course materials.';
+        systemPrompt = `You are a helpful AI assistant for students. Provide clear, educational responses based on course materials.
+
+UNCERTAINTY: If you don't know something or are uncertain, explicitly say so. Never make up information, facts, or citations. Use phrases like "I'm not certain, but..." or "The course materials don't cover this" when appropriate.
+
+INLINE CITATIONS (MANDATORY): Place citations IMMEDIATELY after EACH factual claim using format: [Source: filename.pdf, p.X]. If you cannot cite a source for a claim, DO NOT make that claim. Example: "Python uses dynamic typing [Source: Programming101.pdf, p.23]."`;
       }
 
       const newAgent = await pool.query(

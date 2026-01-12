@@ -79,7 +79,8 @@ export const EMBEDDING_CONFIG = {
 // =====================================================
 export const AI_SERVICE = {
   /** Default temperature for AI responses (lower = more factual, higher = more creative) */
-  DEFAULT_TEMPERATURE: 0.3,
+  /** Range 0.0-0.3 recommended to reduce hallucinations and increase factual accuracy */
+  DEFAULT_TEMPERATURE: 0.2,
 
   /** Default max tokens for responses */
   DEFAULT_MAX_TOKENS: 2048,
@@ -102,6 +103,37 @@ export const AI_SERVICE = {
   /** Backoff multiplier for exponential backoff */
   RETRY_BACKOFF_MULTIPLIER: 2,
 } as const;
+
+// =====================================================
+// CHAIN-OF-VERIFICATION (CoVe) CONFIGURATION
+// =====================================================
+export const COVE_CONFIG = {
+  /** Enable/disable Chain-of-Verification globally */
+  ENABLED: getEnvBoolean('COVE_ENABLED', true),
+
+  /** Only apply CoVe when confidence is below this threshold (0.0-1.0) */
+  /** Set to 0.7 means only responses with <70% confidence get verified */
+  CONFIDENCE_THRESHOLD: parseFloat(process.env.COVE_CONFIDENCE_THRESHOLD || '0.7'),
+
+  /** Agent types that should use CoVe verification */
+  ENABLED_FOR_AGENTS: ['subject_chatbot', 'grading_assistant'] as string[],
+
+  /** Agent types that should never use CoVe (e.g., verification agents) */
+  DISABLED_FOR_AGENTS: ['integrity_verification'] as string[],
+
+  /** Number of verification questions to generate (3-5 recommended) */
+  VERIFICATION_QUESTIONS_COUNT: 3,
+
+  /** Maximum number of verification attempts on failure */
+  MAX_VERIFICATION_ATTEMPTS: 3,
+
+  /** Temperature for verification steps (use lower for more factual) */
+  VERIFICATION_TEMPERATURE: 0.1,
+
+  /** Minimum improvement in confidence to accept revised response */
+  /** 0.1 means revised response must be at least 10% more confident */
+  MIN_CONFIDENCE_IMPROVEMENT: 0.1,
+};
 
 // =====================================================
 // PAGINATION CONFIGURATION

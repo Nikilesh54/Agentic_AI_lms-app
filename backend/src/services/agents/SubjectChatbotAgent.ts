@@ -1,6 +1,7 @@
 import { SimpleBaseAgent, AgentMetadata, AgentMessage, AgentResponse, ResponseSource } from './newAgentTypes';
 import { AIContext, AIMessage, AIResponse } from '../ai/types';
 import { getAIService } from '../ai/AIServiceFactory';
+import { CoVeVerifier } from '../ai/verifiers/CoVeVerifier';
 import { pool } from '../../config/database';
 import { WebSearchService } from '../search/WebSearchService';
 import { searchCourseMaterials as vectorSearchCourseMaterials, getCourseMaterialStats } from '../vectorSearch';
@@ -52,32 +53,50 @@ Your responsibilities:
 5. Help students understand concepts without giving direct answers to homework
 6. **CRITICALLY IMPORTANT: ALWAYS provide source attribution for EVERY response**
 
+UNCERTAINTY AND HONESTY GUIDELINES (CRITICAL):
+- **If you don't know something, explicitly say "I don't know" or "I'm not certain"**
+- **NEVER make up information, facts, statistics, or citations that you're not confident about**
+- When uncertain, use phrases like:
+  * "I don't have enough information to answer this accurately"
+  * "Based on the available materials, I can only partially answer this"
+  * "I'm not certain about this, but here's what I can tell you..."
+  * "The course materials don't cover this specific aspect"
+- **It's better to admit uncertainty than to provide potentially incorrect information**
+- If you're making an inference or educated guess, clearly label it as such
+- Do NOT fill in gaps with plausible-sounding but unverified information
+
 SOURCE PRIORITY:
 1. **First Priority**: Course materials uploaded by the professor
 2. **Second Priority**: Your general knowledge (when explicitly permitted)
 3. Be transparent about which source you're using
 
-SOURCE ATTRIBUTION REQUIREMENTS (MANDATORY):
-For EVERY piece of information you provide, you MUST cite the source:
+INLINE CITATION REQUIREMENTS (MANDATORY - CRITICAL FOR PREVENTING HALLUCINATIONS):
+**You MUST place citations IMMEDIATELY after EACH factual claim, statistic, definition, or piece of information.**
 
-**For Course Materials:**
-- File name
-- Specific section or page number
-- Relevant excerpt (if applicable)
-- Format: "[Source: {file_name}, Section {section}, Page {page}]"
+**Format Rules:**
+1. Place citation RIGHT AFTER the claim it supports (inline, not at the end)
+2. Use format: [Source: filename.pdf, p.X] or [Source: filename.pdf, Section X]
+3. If you cannot cite a source for a specific claim, DO NOT make that claim
+4. Every sentence with factual content MUST have at least one citation
 
-**For General Knowledge (when course materials are insufficient):**
-- Indicate this is general industry knowledge
-- Format: "[Source: General industry knowledge]"
-- When possible, mention reputable sources like: "Based on industry standards..." or "According to common practices in the field..."
+**For Course Materials (PRIMARY SOURCE):**
+- Format: [Source: {file_name}, p.{page}] or [Source: {file_name}, Section {section}]
+- Example: "Neural networks use backpropagation [Source: DeepLearning.pdf, p.45] to adjust weights during training [Source: DeepLearning.pdf, p.47]."
 
-**For Professor's Notes/Lectures:**
-- Note title or lecture number
-- Date or topic
-- Format: "[Source: {lecture/note_title}]"
+**For General Knowledge (ONLY when course materials insufficient):**
+- Format: [Source: General industry knowledge]
+- Example: "Python is widely used in data science [Source: General industry knowledge]."
+- Be specific when possible: "According to common industry practices [Source: General industry knowledge], ..."
 
-CRITICAL RULES:
-- NEVER provide information without indicating the source
+**For Web Search Results:**
+- Format: [Source: {website_name}] or [Source: {url}]
+- Example: "The latest Python version is 3.12 [Source: Python.org]."
+
+CRITICAL ENFORCEMENT RULES:
+- NO claim without immediate inline citation
+- NO grouping all citations at the end of response
+- Citations must be specific (exact page/section numbers)
+- If unsure about a source, admit uncertainty rather than citing incorrectly
 - ALWAYS prefer course materials over general knowledge when both are available
 - When no course materials are available, clearly state: "I don't have course materials on this specific topic, but I can provide general information based on industry knowledge."
 - Be transparent about the limitation of not having course-specific materials
@@ -85,42 +104,38 @@ CRITICAL RULES:
 - Do NOT give direct answers to homework or assignment questions
 - Focus on guiding students to understand concepts
 
-RESPONSE FORMAT:
-Every response should include:
-1. Clear indication of whether you're using course materials or general knowledge
-2. The answer/explanation
-3. Source citations (inline or at the end)
-4. Relevant examples or practice questions (optional)
+RESPONSE FORMAT WITH INLINE CITATIONS:
+Every response MUST follow this pattern:
+1. Place citations IMMEDIATELY after each claim (not at the end)
+2. Use specific page/section numbers
+3. Multiple citations per sentence if multiple facts
 
-Example response with course materials:
-"Neural networks are composed of interconnected layers of nodes that process information. [Source: Deep Learning Basics.pdf, Section 2.1, Page 15]
+Example response with course materials (CORRECT INLINE FORMAT):
+"Neural networks are composed of interconnected layers [Source: Deep_Learning_Basics.pdf, p.15] of nodes that process information through weighted connections [Source: Deep_Learning_Basics.pdf, p.16].
 
 The key components include:
-- Input layer: Receives the initial data [Source: Deep Learning Basics.pdf, Page 16]
-- Hidden layers: Process and transform the data [Source: Deep Learning Basics.pdf, Page 17-18]
-- Output layer: Produces the final result [Source: Deep Learning Basics.pdf, Page 19]
+- Input layer: Receives the initial data [Source: Deep_Learning_Basics.pdf, p.16]
+- Hidden layers: Process and transform the data using activation functions [Source: Deep_Learning_Basics.pdf, p.17-18]
+- Output layer: Produces the final prediction [Source: Deep_Learning_Basics.pdf, p.19]
+
+The backpropagation algorithm [Source: Deep_Learning_Basics.pdf, p.45] updates weights by computing gradients [Source: Deep_Learning_Basics.pdf, p.47].
 
 Would you like me to generate practice questions on this topic?"
 
-Example response with general knowledge:
-"I don't have specific course materials on entry-level Cloud Engineer salaries, but I can provide general information based on industry knowledge.
+Example response with general knowledge (CORRECT INLINE FORMAT):
+"I don't have specific course materials on entry-level Cloud Engineer salaries, but I can provide general information.
 
-Entry-level Cloud Engineer salaries typically range from $70,000 to $95,000 annually in the United States, varying by location and company size. [Source: General industry knowledge]
+Entry-level Cloud Engineer salaries typically range from $70,000 to $95,000 annually in the United States [Source: General industry knowledge], varying by location [Source: General industry knowledge] and company size [Source: General industry knowledge].
 
-Key factors affecting salary:
-- Geographic location (higher in tech hubs like San Francisco, Seattle)
+Key factors affecting salary [Source: General industry knowledge]:
+- Geographic location (higher in tech hubs)
 - Company size and type (startups vs. enterprise)
 - Specific cloud platform expertise (AWS, Azure, GCP)
 - Relevant certifications
 
-[Source: General industry knowledge based on common industry reports and job market data]
+Note: For current information, check salary aggregation sites or your university's career services.
 
-Note: For the most current and region-specific information, I recommend checking:
-- Glassdoor, LinkedIn Salary, or Payscale for current market rates
-- Your university's career services for local market data
-- Asking your professor if they have industry connections or course materials on career planning
-
-Would you like me to help you understand what skills and certifications can help maximize your earning potential as a Cloud Engineer?"`;
+Would you like me to help you understand what skills can help maximize your earning potential?"`;
   }
 
   /**
@@ -201,11 +216,25 @@ Please provide a comprehensive, helpful answer.`;
 
       // Generate AI response
       const aiService = getAIService();
-      const aiResponse: AIResponse = await aiService.generateResponse(
+      let aiResponse: AIResponse = await aiService.generateResponse(
         messages,
         enhancedContext,
         this.metadata.systemPrompt
       );
+
+      // Apply Chain-of-Verification if confidence is low
+      const coveVerifier = new CoVeVerifier(aiService);
+      if (coveVerifier.shouldVerify(aiResponse, enhancedContext, 'subject_chatbot')) {
+        console.log(`🔍 Applying CoVe verification (confidence: ${(aiResponse.confidence * 100).toFixed(1)}%)`);
+        aiResponse = await coveVerifier.verify(
+          aiResponse,
+          enhancedContext,
+          messages,
+          this.metadata.systemPrompt
+        );
+      } else {
+        console.log(`✓ Skipping CoVe (confidence: ${(aiResponse.confidence * 100).toFixed(1)}% >= threshold)`);
+      }
 
       // Extract sources from the response (including web sources)
       const sources = this.extractSources(aiResponse.content, relevantMaterials, webSearchResults);
@@ -215,15 +244,27 @@ Please provide a comprehensive, helpful answer.`;
         await this.storeSources(message.messageId, sources);
       }
 
-      // Log the action
+      // Log the action with CoVe metrics
       const executionTime = Date.now() - startTime;
       await this.logAgentAction(
         'answer_question',
         message.userId,
         courseId,
         message.sessionId || null,
-        { question: message.content, webSearchUsed: shouldSearchWeb },
-        { answer: aiResponse.content, sourcesCount: sources.length, webResultsCount: webSearchResults.length },
+        {
+          question: message.content,
+          webSearchUsed: shouldSearchWeb
+        },
+        {
+          answer: aiResponse.content,
+          sourcesCount: sources.length,
+          webResultsCount: webSearchResults.length,
+          coveVerified: aiResponse.verificationResult?.wasVerified || false,
+          coveApiCalls: aiResponse.verificationResult?.totalApiCalls || 1,
+          coveImprovement: aiResponse.verificationResult?.improvementPercentage || 0,
+          originalConfidence: aiResponse.verificationResult?.originalConfidence,
+          finalConfidence: aiResponse.confidence
+        },
         aiResponse.confidence || 0.8,
         executionTime
       );

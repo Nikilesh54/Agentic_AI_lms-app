@@ -29,6 +29,30 @@ export interface AIResponse {
   sources?: Array<{ id: number; name: string; relevance: number }>;
   toolCalls?: ToolCall[];
   metadata?: Record<string, any>;
+  verificationResult?: VerificationResult; // CoVe verification details
+}
+
+/**
+ * Chain-of-Verification result metadata
+ */
+export interface VerificationResult {
+  wasVerified: boolean; // Whether CoVe was applied
+  originalConfidence: number; // Confidence before verification
+  finalConfidence: number; // Confidence after verification
+  improvementPercentage: number; // Percentage improvement
+  verificationSteps: VerificationStep[];
+  totalApiCalls: number; // Number of API calls made (for cost tracking)
+  verificationTimeMs: number; // Time taken for verification
+}
+
+export interface VerificationStep {
+  step: 'generate_questions' | 'answer_questions' | 'revise_response';
+  questions?: string[]; // Generated verification questions
+  answers?: string[]; // Answers to verification questions
+  revisedContent?: string; // Revised response content
+  confidence?: number; // Confidence at this step
+  status: 'success' | 'failure' | 'skipped';
+  errorMessage?: string;
 }
 
 export interface StreamChunk {
