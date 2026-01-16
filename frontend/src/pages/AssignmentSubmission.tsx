@@ -19,6 +19,8 @@ const AssignmentSubmission: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [tentativeGrade, setTentativeGrade] = useState<TentativeGrade | null>(null);
   const [loadingTentativeGrade, setLoadingTentativeGrade] = useState(false);
+  const [showGradeWarningModal, setShowGradeWarningModal] = useState(false);
+  const [hasAcknowledgedWarning, setHasAcknowledgedWarning] = useState(false);
 
   useEffect(() => {
     if (assignmentId) {
@@ -52,12 +54,22 @@ const AssignmentSubmission: React.FC = () => {
       setLoadingTentativeGrade(true);
       const response = await gradingAssistantAPI.getTentativeGrade(submissionId);
       setTentativeGrade(response.data.tentativeGrade);
+
+      // Show warning modal if this is the first time viewing a tentative grade
+      if (!hasAcknowledgedWarning && response.data.tentativeGrade && !response.data.tentativeGrade.is_final) {
+        setShowGradeWarningModal(true);
+      }
     } catch (error: any) {
       // Tentative grade might not exist yet, which is okay
       console.log('No tentative grade yet:', error.response?.data?.error);
     } finally {
       setLoadingTentativeGrade(false);
     }
+  };
+
+  const handleAcknowledgeWarning = () => {
+    setHasAcknowledgedWarning(true);
+    setShowGradeWarningModal(false);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -363,12 +375,14 @@ const AssignmentSubmission: React.FC = () => {
               </div>
 
               <div className="form-group">
-                <label>Attach Files (Optional)</label>
+                <label htmlFor="file-upload">Attach Files (Optional)</label>
                 <input
+                  id="file-upload"
                   type="file"
                   multiple
                   onChange={handleFileChange}
                   accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.zip"
+                  aria-label="Attach files to your submission"
                 />
                 {selectedFiles && selectedFiles.length > 0 && (
                   <div className="selected-files">
@@ -395,6 +409,67 @@ const AssignmentSubmission: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Warning Modal for Tentative Grades */}
+      {showGradeWarningModal && (
+        <div className="modal-overlay" onClick={() => setShowGradeWarningModal(false)}>
+          <div className="modal-content warning-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="warning-icon-large">⚠️</div>
+              <h2>Important: AI-Generated Grade Notice</h2>
+            </div>
+
+            <div className="modal-body">
+              <div className="warning-box">
+                <p className="warning-title"><strong>This is NOT your final grade</strong></p>
+                <p>The grade you are about to see is a <strong>preliminary, AI-generated assessment</strong> of your submission.</p>
+              </div>
+
+              <div className="warning-points">
+                <h3>Please understand:</h3>
+                <ul>
+                  <li>
+                    <span className="bullet">•</span>
+                    <span>Your professor will review your submission and may assign a different grade</span>
+                  </li>
+                  <li>
+                    <span className="bullet">•</span>
+                    <span>The AI evaluation is meant to give you early feedback, not a final judgment</span>
+                  </li>
+                  <li>
+                    <span className="bullet">•</span>
+                    <span>The final grade from your professor is the only grade that counts toward your course score</span>
+                  </li>
+                  <li>
+                    <span className="bullet">•</span>
+                    <span>AI can make mistakes - treat this as guidance, not a definitive evaluation</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="risk-notice">
+                <strong>By viewing this tentative grade, you acknowledge that:</strong>
+                <p>You understand this is preliminary feedback only, and you accept that your final grade may differ significantly from this AI-generated assessment.</p>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button
+                className="btn-primary btn-large"
+                onClick={handleAcknowledgeWarning}
+              >
+                I Understand - Show Tentative Grade
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => setShowGradeWarningModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

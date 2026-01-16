@@ -63,7 +63,7 @@ CRITICAL: Always include a disclaimer that this is a preliminary grade pending p
     studentId: number,
     submissionText: string,
     submissionFiles: string[],
-    rubric: GradingRubric
+    rubric: GradingRubric | null = null
   ): Promise<TentativeGradeResult> {
     const startTime = Date.now();
 
@@ -96,8 +96,15 @@ CRITICAL: Always include a disclaimer that this is a preliminary grade pending p
         this.metadata.systemPrompt
       );
 
+      // Get max points from rubric or assignment
+      const maxPointsQuery = await pool.query(
+        'SELECT points FROM assignments WHERE id = $1',
+        [assignmentId]
+      );
+      const maxPoints = rubric?.total_points || maxPointsQuery.rows[0]?.points || 100;
+
       // Parse the AI response to extract grading information
-      const gradeResult = this.parseGradingResponse(aiResponse.content, rubric);
+      const gradeResult = this.parseGradingResponse(aiResponse.content, maxPoints);
 
       // Store the tentative grade in the database
       await this.storeTentativeGrade(
@@ -148,11 +155,11 @@ CRITICAL: Always include a disclaimer that this is a preliminary grade pending p
     assignmentId: number,
     submissionText: string,
     submissionFiles: string[],
-    rubric: GradingRubric
+    rubric: GradingRubric | null
   ): Promise<string> {
-    // Get assignment details
+    // Get assignment details including AI-extracted criteria
     const assignmentResult = await pool.query(
-      'SELECT title, description, question_text, points FROM assignments WHERE id = $1',
+      'SELECT title, description, question_text, points, ai_grading_criteria FROM assignments WHERE id = $1',
       [assignmentId]
     );
     const assignment = assignmentResult.rows[0];
@@ -165,23 +172,70 @@ CRITICAL: Always include a disclaimer that this is a preliminary grade pending p
 **Description:** ${assignment.description || 'N/A'}
 **Question:** ${assignment.question_text || 'N/A'}
 **Total Points:** ${assignment.points}
+`;
 
-## Grading Rubric
+    // Use explicit rubric if provided, otherwise use AI-extracted criteria
+    if (rubric) {
+      context += `
+## Grading Rubric (Professor-Defined)
 **Rubric Name:** ${rubric.rubric_name}
 **Total Points:** ${rubric.total_points}
 
 ### Criteria:
 `;
 
-    // Add rubric criteria
-    for (const criterion of rubric.criteria) {
-      context += `
+      // Add rubric criteria
+      for (const criterion of rubric.criteria) {
+        context += `
 **${criterion.name}** (${criterion.points} points)
 - Description: ${criterion.description}
 - Excellent (${criterion.points}): ${criterion.excellent_description || 'Exceeds expectations'}
 - Good (${Math.round(criterion.points * 0.8)}): ${criterion.good_description || 'Meets expectations'}
 - Fair (${Math.round(criterion.points * 0.6)}): ${criterion.fair_description || 'Partially meets expectations'}
 - Poor (${Math.round(criterion.points * 0.4)}): ${criterion.poor_description || 'Does not meet expectations'}
+`;
+      }
+    } else if (assignment.ai_grading_criteria) {
+      // Use AI-extracted criteria
+      const criteria = assignment.ai_grading_criteria;
+      context += `
+## AI-Extracted Grading Criteria
+**Complexity Level:** ${criteria.complexity_level}
+**Estimated Effort:** ${criteria.estimated_effort}
+
+### Requirements:
+${criteria.requirements.map((req: string, i: number) => `${i + 1}. ${req}`).join('\n')}
+
+### Key Topics to Address:
+${criteria.key_topics.map((topic: string) => `- ${topic}`).join('\n')}
+
+### Evaluation Points:
+`;
+
+      for (const point of criteria.evaluation_points) {
+        context += `
+**${point.criterion}** (Weight: ${point.weight}%)
+- ${point.description}
+`;
+      }
+
+      if (criteria.rubric_suggestion) {
+        context += `\n### Suggested Rubric:\n`;
+        for (const criterion of criteria.rubric_suggestion.criteria) {
+          context += `
+**${criterion.name}** (${criterion.max_points} points)
+- ${criterion.description}
+`;
+        }
+      }
+    } else {
+      // No rubric and no AI criteria - use generic evaluation
+      context += `
+## Evaluation Guidelines
+Evaluate based on standard academic criteria:
+- Content Quality and Completeness (40%)
+- Organization and Structure (30%)
+- Following Assignment Instructions (30%)
 `;
     }
 
@@ -198,7 +252,7 @@ ${submissionText}
     context += `
 
 ## Task
-Please evaluate this submission according to the rubric provided above.
+Please evaluate this submission according to the criteria provided above.
 
 Provide your response in the following JSON format:
 {
@@ -233,7 +287,7 @@ Be thorough, fair, and constructive in your evaluation.`;
    */
   private parseGradingResponse(
     responseContent: string,
-    rubric: GradingRubric
+    maxPoints: number
   ): TentativeGradeResult {
     try {
       // Try to extract JSON from the response
@@ -249,7 +303,7 @@ Be thorough, fair, and constructive in your evaluation.`;
 
       return {
         tentative_grade: parsed.tentative_grade || 0,
-        max_points: rubric.total_points,
+        max_points: maxPoints,
         rubric_breakdown: parsed.rubric_breakdown || [],
         strengths: parsed.strengths || [],
         areas_for_improvement: parsed.areas_for_improvement || [],
@@ -263,7 +317,7 @@ Be thorough, fair, and constructive in your evaluation.`;
       // Fallback: return a basic result
       return {
         tentative_grade: 0,
-        max_points: rubric.total_points,
+        max_points: maxPoints,
         rubric_breakdown: [],
         strengths: [],
         areas_for_improvement: ['Unable to parse detailed feedback - please review manually'],

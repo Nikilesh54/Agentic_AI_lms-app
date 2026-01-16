@@ -184,7 +184,7 @@ router.post('/assignments', async (req, res) => {
 
     const courseId = courseResult.rows[0].course_id;
 
-    // Create assignment
+    // Create assignment first
     const result = await pool.query(
       `INSERT INTO assignments (title, description, question_text, course_id, due_date, points)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -192,9 +192,36 @@ router.post('/assignments', async (req, res) => {
       [title, description || null, questionText || null, courseId, dueDate || null, points || 100]
     );
 
+    const assignment = result.rows[0];
+
+    // Extract AI grading criteria in background (don't wait for it)
+    // This happens asynchronously so professor doesn't have to wait
+    (async () => {
+      try {
+        const { assignmentCriteriaExtractor } = await import('../services/ai/AssignmentCriteriaExtractor');
+        const criteria = await assignmentCriteriaExtractor.extractCriteria(
+          title,
+          description || '',
+          questionText || '',
+          points || 100
+        );
+
+        // Update assignment with extracted criteria
+        await pool.query(
+          'UPDATE assignments SET ai_grading_criteria = $1 WHERE id = $2',
+          [JSON.stringify(criteria), assignment.id]
+        );
+
+        console.log(`✓ AI grading criteria extracted for assignment ${assignment.id}`);
+      } catch (error) {
+        console.error('Error extracting AI grading criteria:', error);
+        // Don't fail the assignment creation if criteria extraction fails
+      }
+    })();
+
     res.status(201).json({
       message: 'Assignment created successfully',
-      assignment: result.rows[0]
+      assignment: assignment
     });
   } catch (error) {
     console.error('Error creating assignment:', error);
@@ -248,9 +275,35 @@ router.put('/assignments/:id', async (req, res) => {
       [title, description, questionText, dueDate, points, id]
     );
 
+    const updatedAssignment = result.rows[0];
+
+    // Re-extract AI grading criteria if title, description, or question changed
+    if (title || description || questionText || points) {
+      (async () => {
+        try {
+          const { assignmentCriteriaExtractor } = await import('../services/ai/AssignmentCriteriaExtractor');
+          const criteria = await assignmentCriteriaExtractor.extractCriteria(
+            updatedAssignment.title,
+            updatedAssignment.description || '',
+            updatedAssignment.question_text || '',
+            updatedAssignment.points || 100
+          );
+
+          await pool.query(
+            'UPDATE assignments SET ai_grading_criteria = $1 WHERE id = $2',
+            [JSON.stringify(criteria), id]
+          );
+
+          console.log(`✓ AI grading criteria re-extracted for assignment ${id}`);
+        } catch (error) {
+          console.error('Error re-extracting AI grading criteria:', error);
+        }
+      })();
+    }
+
     res.json({
       message: 'Assignment updated successfully',
-      assignment: result.rows[0]
+      assignment: updatedAssignment
     });
   } catch (error) {
     console.error('Error updating assignment:', error);

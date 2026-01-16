@@ -69,6 +69,7 @@ export function isValidInteger(value: any): boolean {
  * Validate positive integer
  */
 export function isValidPositiveInteger(value: any): boolean {
+  if (value === undefined || value === null || value === '') return false;
   return isValidInteger(value) && parseInt(value, 10) > 0;
 }
 
@@ -379,34 +380,35 @@ export function validateFileUpload(allowedTypes?: string[]) {
  */
 export function validatePagination() {
   return (req: Request, res: Response, next: NextFunction) => {
-    const { page, limit } = req.query;
+    let { page, limit } = req.query;
 
     // Set defaults if not provided
-    if (!page) {
+    if (!page || page === '') {
+      page = '1';
       req.query.page = '1';
     }
-    if (!limit) {
+    if (!limit || limit === '') {
+      limit = '20';
       req.query.limit = '20';
     }
 
-    // Validate page
-    if (!isValidPositiveInteger(req.query.page)) {
+    // Validate page - must be a positive integer
+    const pageNum = parseInt(page as string, 10);
+    if (isNaN(pageNum) || pageNum <= 0 || pageNum.toString() !== (page as string)) {
       return res.status(400).json({
         error: 'Validation failed',
         message: 'page must be a positive integer'
       });
     }
 
-    // Validate limit
-    if (!isValidPositiveInteger(req.query.limit)) {
+    // Validate limit - must be a positive integer
+    const limitNum = parseInt(limit as string, 10);
+    if (isNaN(limitNum) || limitNum <= 0 || limitNum.toString() !== (limit as string)) {
       return res.status(400).json({
         error: 'Validation failed',
         message: 'limit must be a positive integer'
       });
     }
-
-    const pageNum = parseInt(req.query.page as string, 10);
-    const limitNum = parseInt(req.query.limit as string, 10);
 
     // Check bounds
     if (limitNum > 100) {
@@ -416,7 +418,7 @@ export function validatePagination() {
       });
     }
 
-    // Convert to numbers
+    // Store parsed values back as strings for consistency
     req.query.page = pageNum.toString();
     req.query.limit = limitNum.toString();
 

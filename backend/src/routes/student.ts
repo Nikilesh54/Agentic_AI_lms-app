@@ -536,6 +536,41 @@ router.post('/assignments/:assignmentId/submit', uploadSubmissionFiles, validate
 
     await client.query('COMMIT');
 
+    // Trigger auto-grading in background (don't wait for it)
+    // Student will see tentative grade asynchronously
+    (async () => {
+      try {
+        const { GradingAssistantAgent } = await import('../services/agents/GradingAssistantAgent');
+        const gradingAgent = new GradingAssistantAgent();
+
+        // Check if there's an explicit rubric for this assignment
+        const rubricResult = await pool.query(
+          'SELECT * FROM grading_rubrics WHERE assignment_id = $1',
+          [assignmentId]
+        );
+
+        const rubric = rubricResult.rows.length > 0 ? rubricResult.rows[0] : null;
+
+        // Get file names for context
+        const fileNames = uploadedFiles.map(f => f.file_name);
+
+        // Generate tentative grade
+        await gradingAgent.generateTentativeGrade(
+          submissionId,
+          parseInt(assignmentId),
+          req.user!.userId,
+          submissionText || '',
+          fileNames,
+          rubric
+        );
+
+        console.log(`✓ Tentative grade generated for submission ${submissionId}`);
+      } catch (error) {
+        console.error('Error generating tentative grade:', error);
+        // Don't fail the submission if grading fails
+      }
+    })();
+
     res.status(201).json({
       message: 'Assignment submitted successfully',
       submission: {
