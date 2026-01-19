@@ -29,6 +29,27 @@ export interface AIResponse {
   sources?: Array<{ id: number; name: string; relevance: number }>;
   toolCalls?: ToolCall[];
   metadata?: Record<string, any>;
+  verificationResult?: VerificationResult;
+}
+
+export interface VerificationResult {
+  wasVerified: boolean;
+  originalConfidence: number;
+  finalConfidence: number;
+  improvementPercentage: number;
+  verificationSteps: VerificationStep[];
+  totalApiCalls: number;
+  verificationTimeMs: number;
+}
+
+export interface VerificationStep {
+  step: 'generate_questions' | 'answer_questions' | 'revise_response';
+  questions?: string[];
+  answers?: string[];
+  revisedContent?: string;
+  confidence?: number;
+  status: 'success' | 'failure';
+  errorMessage?: string;
 }
 
 export interface StreamChunk {

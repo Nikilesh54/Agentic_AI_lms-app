@@ -1,0 +1,34 @@
+# Node modules
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Google Cloud Service Account Key
+config/gcs-key.json
+gcs-key.json
+
+# But DO include example files and package.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!config/gcs-key.json.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

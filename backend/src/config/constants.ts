@@ -213,6 +213,29 @@ export const TRUST_SCORE = {
 } as const;
 
 // =====================================================
+// CHAIN-OF-VERIFICATION (CoVe) CONFIGURATION
+// =====================================================
+export const COVE_CONFIG = {
+  /** Enable Chain-of-Verification globally */
+  ENABLED: process.env.COVE_ENABLED === 'true',
+
+  /** Only verify responses with confidence below this threshold */
+  CONFIDENCE_THRESHOLD: parseFloat(process.env.COVE_CONFIDENCE_THRESHOLD || '0.7'),
+
+  /** Minimum confidence improvement to use revised response */
+  MIN_CONFIDENCE_IMPROVEMENT: 0.05,
+
+  /** Number of verification questions to generate */
+  VERIFICATION_QUESTIONS_COUNT: 3,
+
+  /** Agent types that should always use CoVe (if empty, all agents can use it) */
+  ENABLED_FOR_AGENTS: [] as string[],
+
+  /** Agent types that should never use CoVe */
+  DISABLED_FOR_AGENTS: [] as string[],
+} as const;
+
+// =====================================================
 // HELPER FUNCTIONS
 // =====================================================
 
