@@ -41,13 +41,19 @@ const pg_1 = require("pg");
 const dotenv_1 = __importDefault(require("dotenv"));
 const seed_1 = require("./seed");
 dotenv_1.default.config();
-const pool = new pg_1.Pool({
-    user: process.env.DB_USER || 'postgres',
-    host: process.env.DB_HOST || 'localhost',
-    database: process.env.DB_NAME || 'lms_db',
-    password: process.env.DB_PASSWORD || '040601',
-    port: parseInt(process.env.DB_PORT || '5432'),
-});
+// Support both DATABASE_URL (Railway/Render) and individual connection params
+const pool = process.env.DATABASE_URL
+    ? new pg_1.Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    })
+    : new pg_1.Pool({
+        user: process.env.DB_USER || 'postgres',
+        host: process.env.DB_HOST || 'localhost',
+        database: process.env.DB_NAME || 'lms_db',
+        password: process.env.DB_PASSWORD || '040601',
+        port: parseInt(process.env.DB_PORT || '5432'),
+    });
 exports.pool = pool;
 const connectDB = async () => {
     try {

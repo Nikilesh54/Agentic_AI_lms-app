@@ -77,6 +77,134 @@ app.get('/api/debug-test', (req, res) => {
   res.json({ message: msg, timestamp: new Date().toISOString() });
 });
 
+// Test course creation (without auth) - for debugging only
+app.post('/api/test-create-course', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database');
+    const { title, description } = req.body;
+
+    apiLog(`🧪 TEST: Attempting to create course: ${title}`);
+
+    // Try to create a test course
+    const result = await pool.query(
+      'INSERT INTO courses (title, description, instructor_id) VALUES ($1, $2, $3) RETURNING *',
+      [title || 'Test Course', description || 'Test Description', null]
+    );
+
+    apiLog(`✅ TEST: Course created successfully with ID: ${result.rows[0].id}`);
+
+    res.json({
+      success: true,
+      message: 'Test course created successfully',
+      course: result.rows[0]
+    });
+  } catch (error) {
+    apiLog(`❌ TEST: Course creation failed: ${error}`);
+    res.status(500).json({
+      success: false,
+      error: 'Course creation failed',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+  }
+});
+
+// User check endpoint - checks if email exists
+app.get('/api/check-email/:email', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database');
+    const { email } = req.params;
+
+    apiLog(`🔍 Checking email: ${email}`);
+
+    // Exact match
+    const exactMatch = await pool.query(
+      'SELECT id, email, role, status FROM users WHERE email = $1',
+      [email]
+    );
+
+    // Case-insensitive match
+    const caseInsensitiveMatch = await pool.query(
+      'SELECT id, email, role, status FROM users WHERE LOWER(email) = LOWER($1)',
+      [email]
+    );
+
+    // All users for debugging
+    const allUsers = await pool.query('SELECT id, email FROM users ORDER BY id');
+
+    res.json({
+      success: true,
+      email: email,
+      exactMatch: exactMatch.rows.length > 0 ? exactMatch.rows[0] : null,
+      caseInsensitiveMatch: caseInsensitiveMatch.rows.length > 0 ? caseInsensitiveMatch.rows[0] : null,
+      allEmails: allUsers.rows.map(u => u.email),
+      totalUsers: allUsers.rows.length
+    });
+  } catch (error) {
+    apiLog(`❌ Email check failed: ${error}`);
+    res.status(500).json({
+      success: false,
+      error: 'Email check failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Database connection test endpoint
+app.get('/api/db-test', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database');
+
+    apiLog('🔍 Testing database connection...');
+
+    // Test basic query
+    const result = await pool.query('SELECT NOW() as current_time, current_database() as db_name');
+
+    // Count users
+    const userCount = await pool.query('SELECT COUNT(*) as count FROM users');
+
+    // Count courses
+    const courseCount = await pool.query('SELECT COUNT(*) as count FROM courses');
+
+    // Get all users with their emails
+    const allUsers = await pool.query('SELECT id, full_name, email, role, status FROM users ORDER BY id');
+
+    // Check specifically for Student1@gmail.com (case-insensitive)
+    const student1Check = await pool.query(
+      "SELECT id, email, role FROM users WHERE LOWER(email) = LOWER('Student1@gmail.com')"
+    );
+
+    apiLog('✅ Database connection successful!');
+
+    res.json({
+      success: true,
+      message: 'Database connection successful',
+      data: {
+        currentTime: result.rows[0].current_time,
+        database: result.rows[0].db_name,
+        userCount: userCount.rows[0].count,
+        courseCount: courseCount.rows[0].count,
+        allUsers: allUsers.rows,
+        student1Exists: student1Check.rows.length > 0,
+        student1Data: student1Check.rows.length > 0 ? student1Check.rows[0] : null,
+        env: {
+          NODE_ENV: process.env.NODE_ENV,
+          hasDatabaseUrl: !!process.env.DATABASE_URL,
+          hasJwtSecret: !!process.env.JWT_SECRET,
+          hasSeedPassword: !!process.env.SEED_DEFAULT_PASSWORD
+        }
+      }
+    });
+  } catch (error) {
+    apiLog(`❌ Database connection failed: ${error}`);
+    res.status(500).json({
+      success: false,
+      error: 'Database connection failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // Connect to database and start server
 const startServer = async () => {
   try {
