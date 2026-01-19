@@ -4,13 +4,19 @@ import { seedRootUser } from './seed';
 
 dotenv.config();
 
-const pool = new Pool({
-  user: process.env.DB_USER || 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  database: process.env.DB_NAME || 'lms_db',
-  password: process.env.DB_PASSWORD || '040601',
-  port: parseInt(process.env.DB_PORT || '5432'),
-});
+// Support both DATABASE_URL (Railway/Render) and individual connection params
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    })
+  : new Pool({
+      user: process.env.DB_USER || 'postgres',
+      host: process.env.DB_HOST || 'localhost',
+      database: process.env.DB_NAME || 'lms_db',
+      password: process.env.DB_PASSWORD || '040601',
+      port: parseInt(process.env.DB_PORT || '5432'),
+    });
 
 export const connectDB = async () => {
   try {

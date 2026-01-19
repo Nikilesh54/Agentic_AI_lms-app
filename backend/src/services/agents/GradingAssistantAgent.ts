@@ -121,7 +121,7 @@ CRITICAL: Always include a disclaimer that this is a preliminary grade pending p
         'generate_grade',
         studentId,
         assignmentId,
-        { submissionId, rubricId: rubric.id },
+        { submissionId, rubricId: rubric?.id },
         gradeResult,
         aiResponse.confidence || 0.7,
         executionTime
@@ -292,7 +292,7 @@ Be thorough, fair, and constructive in your evaluation.`;
     try {
       // Try to extract JSON from the response
       const jsonMatch = responseContent.match(/```json\n([\s\S]*?)\n```/) ||
-                       responseContent.match(/\{[\s\S]*\}/);
+        responseContent.match(/\{[\s\S]*\}/);
 
       if (!jsonMatch) {
         throw new Error('Could not parse JSON from AI response');
