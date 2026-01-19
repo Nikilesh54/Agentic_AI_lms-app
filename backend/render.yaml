@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: lms-backend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: SEED_DEFAULT_PASSWORD
+        sync: false
+      - key: GOOGLE_CLOUD_PROJECT_ID
+        sync: false
+      - key: GCS_BUCKET_NAME
+        sync: false
+      - key: GOOGLE_AI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash-exp
+      - key: AI_PROVIDER
+        value: gemini
+      - key: AI_TEMPERATURE
+        value: 0.2
+      - key: AI_MAX_TOKENS
+        value: 2048
+      - key: COVE_ENABLED
+        value: true
+      - key: COVE_CONFIDENCE_THRESHOLD
+        value: 0.7
