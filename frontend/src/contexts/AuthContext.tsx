@@ -21,8 +21,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Configure axios defaults
-axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+// Configure axios defaults - Updated 2026-01-23
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+console.log('[AuthContext] API Base URL:', API_BASE);
+axios.defaults.baseURL = API_BASE;
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
