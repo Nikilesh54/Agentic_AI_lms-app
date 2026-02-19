@@ -10,12 +10,25 @@ let bucket: any;
 const bucketName = process.env.GCS_BUCKET_NAME || 'lms-storage';
 
 try {
-  storage = new Storage({
-    projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
-    keyFilename: path.resolve(__dirname, '../../config/gcs-key.json'),
-  });
+  const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
+
+  if (process.env.GCS_CREDENTIALS_BASE64) {
+    // Production: use base64-encoded credentials from environment variable
+    const credentials = JSON.parse(
+      Buffer.from(process.env.GCS_CREDENTIALS_BASE64, 'base64').toString('utf-8')
+    );
+    storage = new Storage({ projectId, credentials });
+    console.log('✅ Google Cloud Storage initialized with env credentials');
+  } else {
+    // Local development: use key file
+    storage = new Storage({
+      projectId,
+      keyFilename: path.resolve(__dirname, '../../config/gcs-key.json'),
+    });
+    console.log('✅ Google Cloud Storage initialized with key file');
+  }
+
   bucket = storage.bucket(bucketName);
-  console.log('✅ Google Cloud Storage initialized successfully');
 } catch (error) {
   console.error('❌ Failed to initialize Google Cloud Storage:', error);
   // Create dummy objects to prevent crashes
