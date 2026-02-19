@@ -39,7 +39,9 @@
       "Bash(timeout 15 npm run dev:*)",
       "Bash(pkill:*)",
       "Bash(node -e \"const { pool } = require\\(''./dist/config/database''\\); pool.query\\(''SELECT trust_score, trust_level, verification_reasoning FROM message_trust_scores WHERE message_id = 115''\\).then\\(r => { console.log\\(JSON.stringify\\(r.rows, null, 2\\)\\); pool.end\\(\\); }\\);\")",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(xargs ls:*)"
     ],
     "deny": [],
     "ask": []

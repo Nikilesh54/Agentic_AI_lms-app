@@ -268,6 +268,10 @@ export const chatAPI = {
   // Get sources for a message
   getSources: (messageId: number) =>
     apiClient.get(`/chat/messages/${messageId}/sources`),
+
+  // Get fact-check result for a message (Groq independent verification)
+  getFactCheck: (messageId: number) =>
+    apiClient.get(`/chat/messages/${messageId}/fact-check`),
 };
 
 // Grading Assistant API

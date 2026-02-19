@@ -48,3 +48,11 @@ coverage/
 *.tmp
 tmp/
 temp/
+
+# Claude Code temp files
+tmpclaude-*
+nul
+
+# Database backups
+*.dump
+*.sql.backup

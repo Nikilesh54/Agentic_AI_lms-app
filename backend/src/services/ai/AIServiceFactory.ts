@@ -1,6 +1,7 @@
 import { IAIService, AIServiceConfig } from './types';
 import { MockAIService } from './providers/MockAIService';
 import { GeminiAIService } from './providers/GeminiAIService';
+import { GroqAIService } from './providers/GroqAIService';
 // Future imports:
 // import { OpenAIService } from './providers/OpenAIService';
 // import { AnthropicService } from './providers/AnthropicService';
@@ -32,6 +33,9 @@ export class AIServiceFactory {
 
       case 'gemini':
         return new GeminiAIService(config);
+
+      case 'groq':
+        return new GroqAIService(config);
 
       // Future implementations:
       // case 'openai':

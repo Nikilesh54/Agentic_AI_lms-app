@@ -372,6 +372,86 @@
   font-size: 0.75rem;
 }
 
+/* Emotional Indicator Badge */
+.emotion-badge {
+  color: #333;
+  cursor: default;
+  gap: 4px;
+}
+
+.emotion-badge:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Fact-Check Badge */
+.fact-check-badge {
+  color: #333;
+}
+
+.fact-check-loading-badge {
+  border-color: #818cf8;
+  color: #6366f1;
+  background: #eef2ff;
+  cursor: default;
+  animation: pulse 2s infinite;
+}
+
+.fact-check-loading-badge:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Claim Stats */
+.claim-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.claim-stat {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.claim-stat.verified {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.claim-stat.inaccurate {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.claim-stat.unverifiable {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* Fact-check verdict badges */
+.match-badge.accurate {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.match-badge.unverifiable {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.match-badge.partially_accurate {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.match-badge.inaccurate {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .metadata-dropdown {

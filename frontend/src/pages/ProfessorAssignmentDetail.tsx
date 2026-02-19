@@ -493,6 +493,7 @@ const ProfessorAssignmentDetail: React.FC = () => {
                     onChange={handleUploadAssignmentFiles}
                     style={{ display: 'none' }}
                     disabled={uploadingFiles}
+                    title="Add assignment files"
                   />
                 </label>
               </div>
@@ -644,19 +645,22 @@ const ProfessorAssignmentDetail: React.FC = () => {
             <h3>Grade Submission - {selectedSubmission.student_name}</h3>
             <form onSubmit={handleGradeSubmission}>
               <div className="form-group">
-                <label>Grade (out of {assignment.points})</label>
+                <label htmlFor="grade-input">Grade (out of {assignment.points})</label>
                 <input
+                  id="grade-input"
                   type="number"
                   value={gradeForm.grade}
                   onChange={(e) => setGradeForm({ ...gradeForm, grade: e.target.value })}
                   min="0"
                   max={assignment.points}
                   required
+                  placeholder={`0–${assignment.points}`}
                 />
               </div>
               <div className="form-group">
-                <label>Feedback (Optional)</label>
+                <label htmlFor="grade-feedback">Feedback (Optional)</label>
                 <textarea
+                  id="grade-feedback"
                   value={gradeForm.feedback}
                   onChange={(e) => setGradeForm({ ...gradeForm, feedback: e.target.value })}
                   rows={5}
@@ -687,25 +691,30 @@ const ProfessorAssignmentDetail: React.FC = () => {
             <h3>Edit Assignment</h3>
             <form onSubmit={handleEditAssignment}>
               <div className="form-group">
-                <label>Title</label>
+                <label htmlFor="edit-title">Title</label>
                 <input
+                  id="edit-title"
                   type="text"
                   value={editForm.title}
                   onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
                   required
+                  placeholder="Assignment title"
                 />
               </div>
               <div className="form-group">
-                <label>Description</label>
+                <label htmlFor="edit-description">Description</label>
                 <textarea
+                  id="edit-description"
                   value={editForm.description}
                   onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                   rows={3}
+                  placeholder="Assignment description"
                 />
               </div>
               <div className="form-group">
-                <label>Question</label>
+                <label htmlFor="edit-question">Question</label>
                 <textarea
+                  id="edit-question"
                   value={editForm.questionText}
                   onChange={(e) => setEditForm({ ...editForm, questionText: e.target.value })}
                   placeholder="Enter the assignment question or instructions..."
@@ -713,21 +722,25 @@ const ProfessorAssignmentDetail: React.FC = () => {
                 />
               </div>
               <div className="form-group">
-                <label>Due Date</label>
+                <label htmlFor="edit-due-date">Due Date</label>
                 <input
+                  id="edit-due-date"
                   type="datetime-local"
                   value={editForm.dueDate}
                   onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })}
+                  title="Due date and time"
                 />
               </div>
               <div className="form-group">
-                <label>Points</label>
+                <label htmlFor="edit-points">Points</label>
                 <input
+                  id="edit-points"
                   type="number"
                   value={editForm.points}
                   onChange={(e) => setEditForm({ ...editForm, points: parseInt(e.target.value) || 0 })}
                   min="0"
                   required
+                  placeholder="0"
                 />
               </div>
               <div className="modal-actions">
@@ -754,8 +767,9 @@ const ProfessorAssignmentDetail: React.FC = () => {
             <h3>{rubric ? 'View/Edit Rubric' : 'Create Grading Rubric'}</h3>
             <form onSubmit={handleCreateRubric}>
               <div className="form-group">
-                <label>Rubric Name *</label>
+                <label htmlFor="rubric-name">Rubric Name *</label>
                 <input
+                  id="rubric-name"
                   type="text"
                   value={rubricForm.rubricName}
                   onChange={(e) => setRubricForm({ ...rubricForm, rubricName: e.target.value })}
@@ -788,8 +802,9 @@ const ProfessorAssignmentDetail: React.FC = () => {
                     </div>
 
                     <div className="form-group">
-                      <label>Name *</label>
+                      <label htmlFor={`criterion-name-${index}`}>Name *</label>
                       <input
+                        id={`criterion-name-${index}`}
                         type="text"
                         value={criterion.name}
                         onChange={(e) => handleCriterionChange(index, 'name', e.target.value)}
@@ -799,8 +814,9 @@ const ProfessorAssignmentDetail: React.FC = () => {
                     </div>
 
                     <div className="form-group">
-                      <label>Description *</label>
+                      <label htmlFor={`criterion-desc-${index}`}>Description *</label>
                       <textarea
+                        id={`criterion-desc-${index}`}
                         value={criterion.description}
                         onChange={(e) => handleCriterionChange(index, 'description', e.target.value)}
                         placeholder="What does this criterion assess?"
@@ -810,13 +826,15 @@ const ProfessorAssignmentDetail: React.FC = () => {
                     </div>
 
                     <div className="form-group">
-                      <label>Points *</label>
+                      <label htmlFor={`criterion-points-${index}`}>Points *</label>
                       <input
+                        id={`criterion-points-${index}`}
                         type="number"
                         value={criterion.points}
                         onChange={(e) => handleCriterionChange(index, 'points', parseInt(e.target.value) || 0)}
                         min="0"
                         required
+                        placeholder="0"
                       />
                     </div>
 
@@ -826,8 +844,9 @@ const ProfessorAssignmentDetail: React.FC = () => {
                       </summary>
 
                       <div className="form-group">
-                        <label>Excellent</label>
+                        <label htmlFor={`criterion-excellent-${index}`}>Excellent</label>
                         <textarea
+                          id={`criterion-excellent-${index}`}
                           value={criterion.excellent_description}
                           onChange={(e) => handleCriterionChange(index, 'excellent_description', e.target.value)}
                           placeholder="What constitutes excellent performance?"
@@ -836,8 +855,9 @@ const ProfessorAssignmentDetail: React.FC = () => {
                       </div>
 
                       <div className="form-group">
-                        <label>Good</label>
+                        <label htmlFor={`criterion-good-${index}`}>Good</label>
                         <textarea
+                          id={`criterion-good-${index}`}
                           value={criterion.good_description}
                           onChange={(e) => handleCriterionChange(index, 'good_description', e.target.value)}
                           placeholder="What constitutes good performance?"
@@ -846,8 +866,9 @@ const ProfessorAssignmentDetail: React.FC = () => {
                       </div>
 
                       <div className="form-group">
-                        <label>Fair</label>
+                        <label htmlFor={`criterion-fair-${index}`}>Fair</label>
                         <textarea
+                          id={`criterion-fair-${index}`}
                           value={criterion.fair_description}
                           onChange={(e) => handleCriterionChange(index, 'fair_description', e.target.value)}
                           placeholder="What constitutes fair performance?"
@@ -856,8 +877,9 @@ const ProfessorAssignmentDetail: React.FC = () => {
                       </div>
 
                       <div className="form-group">
-                        <label>Poor</label>
+                        <label htmlFor={`criterion-poor-${index}`}>Poor</label>
                         <textarea
+                          id={`criterion-poor-${index}`}
                           value={criterion.poor_description}
                           onChange={(e) => handleCriterionChange(index, 'poor_description', e.target.value)}
                           placeholder="What constitutes poor performance?"
@@ -964,8 +986,9 @@ const ProfessorAssignmentDetail: React.FC = () => {
                 </p>
 
                 <div className="form-group">
-                  <label>Override Grade (Optional)</label>
+                  <label htmlFor="override-grade">Override Grade (Optional)</label>
                   <input
+                    id="override-grade"
                     type="number"
                     value={gradeForm.grade}
                     onChange={(e) => setGradeForm({ ...gradeForm, grade: e.target.value })}
@@ -976,8 +999,9 @@ const ProfessorAssignmentDetail: React.FC = () => {
                 </div>
 
                 <div className="form-group">
-                  <label>Additional Feedback (Optional)</label>
+                  <label htmlFor="override-feedback">Additional Feedback (Optional)</label>
                   <textarea
+                    id="override-feedback"
                     value={gradeForm.feedback}
                     onChange={(e) => setGradeForm({ ...gradeForm, feedback: e.target.value })}
                     placeholder="Add your own feedback or leave empty to use AI feedback"

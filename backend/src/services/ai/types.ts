@@ -78,7 +78,7 @@ export interface Intent {
 }
 
 export interface AIServiceConfig {
-  provider: 'mock' | 'openai' | 'anthropic' | 'gemini' | 'custom';
+  provider: 'mock' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'custom';
   apiKey?: string;
   model?: string;
   temperature?: number;

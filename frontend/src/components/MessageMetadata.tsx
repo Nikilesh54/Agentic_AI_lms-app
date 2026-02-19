@@ -3,10 +3,17 @@ import { chatAPI } from '../services/api';
 import type {
   ResponseSource,
   TrustScore,
+  FactCheckResult,
+  EmotionalFilterData,
 } from '../types/agenticai';
 import {
   getTrustScoreColor,
   getTrustLevelLabel,
+  getAccuracyScoreColor,
+  getAccuracyLevelLabel,
+  getVerdictColor,
+  getEmotionColor,
+  getEmotionEmoji,
 } from '../types/agenticai';
 import './MessageMetadata.css';
 
@@ -18,26 +25,34 @@ interface MessageMetadataProps {
 const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }) => {
   const [sources, setSources] = useState<ResponseSource[]>([]);
   const [trustScore, setTrustScore] = useState<TrustScore | null>(null);
+  const [factCheck, setFactCheck] = useState<FactCheckResult | null>(null);
   const [loadingSources, setLoadingSources] = useState(true);
   const [loadingTrust, setLoadingTrust] = useState(true);
+  const [loadingFactCheck, setLoadingFactCheck] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
   const [showSources, setShowSources] = useState(false);
+  const [showFactCheck, setShowFactCheck] = useState(false);
 
   const trustDropdownRef = useRef<HTMLDivElement>(null);
   const sourcesDropdownRef = useRef<HTMLDivElement>(null);
+  const factCheckDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Parse emotional filter data from metadata
+  const emotionalFilter: EmotionalFilterData | null = metadata?.emotionalFilter || null;
 
   useEffect(() => {
     fetchSources();
     fetchTrustScore();
+    fetchFactCheck();
   }, [messageId]);
 
   // Handle click outside to close dropdowns
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+
       // Close trust score dropdown if clicked outside
       if (trustDropdownRef.current && !trustDropdownRef.current.contains(event.target as Node)) {
-        // Check if the click was on the trust badge button
-        const target = event.target as HTMLElement;
         if (!target.closest('.trust-badge')) {
           setShowDetails(false);
         }
@@ -45,24 +60,27 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
 
       // Close sources dropdown if clicked outside
       if (sourcesDropdownRef.current && !sourcesDropdownRef.current.contains(event.target as Node)) {
-        // Check if the click was on the sources badge button
-        const target = event.target as HTMLElement;
         if (!target.closest('.sources-badge')) {
           setShowSources(false);
         }
       }
+
+      // Close fact-check dropdown if clicked outside
+      if (factCheckDropdownRef.current && !factCheckDropdownRef.current.contains(event.target as Node)) {
+        if (!target.closest('.fact-check-badge')) {
+          setShowFactCheck(false);
+        }
+      }
     };
 
-    // Add event listener when either dropdown is open
-    if (showDetails || showSources) {
+    if (showDetails || showSources || showFactCheck) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
-    // Cleanup
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showDetails, showSources]);
+  }, [showDetails, showSources, showFactCheck]);
 
   const fetchSources = async () => {
     try {
@@ -78,21 +96,34 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
 
   const fetchTrustScore = async () => {
     try {
-      // Add a small delay since verification runs in background
       await new Promise(resolve => setTimeout(resolve, 2000));
-
       const response = await chatAPI.getTrustScore(messageId);
       setTrustScore(response.data.trustScore);
     } catch (error: any) {
-      // Trust score might not be ready yet
       if (error.response?.status === 404) {
-        // Retry after a delay
         setTimeout(() => {
           fetchTrustScore();
         }, 3000);
       }
     } finally {
       setLoadingTrust(false);
+    }
+  };
+
+  const fetchFactCheck = async () => {
+    try {
+      // Longer delay — fact-check runs after emotional filter + response delivery
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      const response = await chatAPI.getFactCheck(messageId);
+      setFactCheck(response.data.factCheck);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        setTimeout(() => {
+          fetchFactCheck();
+        }, 4000);
+      }
+    } finally {
+      setLoadingFactCheck(false);
     }
   };
 
@@ -108,13 +139,13 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
             onClick={() => setShowSources(!showSources)}
             title="View sources"
           >
-            📚 {sourcesCount} {sourcesCount === 1 ? 'Source' : 'Sources'}
+            {sourcesCount} {sourcesCount === 1 ? 'Source' : 'Sources'}
           </button>
         )}
 
         {loadingTrust ? (
           <span className="metadata-badge verifying-badge">
-            ⏳ Verifying...
+            Verifying...
           </span>
         ) : trustScore ? (
           <button
@@ -124,9 +155,40 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
             title="View verification details"
           >
             <span className="trust-icon" style={{ color: getTrustScoreColor(trustScore.trust_score) }}>
-              {trustScore.trust_score >= 70 ? '✓' : trustScore.trust_score >= 50 ? '⚠' : '✗'}
+              {trustScore.trust_score >= 70 ? 'V' : trustScore.trust_score >= 50 ? '!' : 'X'}
             </span>
             Trust: {trustScore.trust_score}/100
+          </button>
+        ) : null}
+
+        {/* Emotional Indicator Badge */}
+        {emotionalFilter && emotionalFilter.applied && (
+          <span
+            className="metadata-badge emotion-badge"
+            style={{ borderColor: getEmotionColor(emotionalFilter.detectedEmotion) }}
+            title={`Detected: ${emotionalFilter.detectedEmotion} (${emotionalFilter.emotionIntensity}) | Tone: ${emotionalFilter.appliedTone}`}
+          >
+            <span>{getEmotionEmoji(emotionalFilter.detectedEmotion)}</span>
+            {emotionalFilter.detectedEmotion}
+          </span>
+        )}
+
+        {/* Fact-Check Badge */}
+        {loadingFactCheck ? (
+          <span className="metadata-badge fact-check-loading-badge">
+            Checking...
+          </span>
+        ) : factCheck && factCheck.status === 'completed' ? (
+          <button
+            className="metadata-badge fact-check-badge"
+            style={{ borderColor: getAccuracyScoreColor(factCheck.overall_accuracy_score) }}
+            onClick={() => setShowFactCheck(!showFactCheck)}
+            title="View fact-check details"
+          >
+            <span style={{ color: getAccuracyScoreColor(factCheck.overall_accuracy_score) }}>
+              {factCheck.overall_accuracy_score >= 70 ? 'V' : factCheck.overall_accuracy_score >= 50 ? '!' : 'X'}
+            </span>
+            Fact Check: {factCheck.overall_accuracy_score}/100
           </button>
         ) : null}
       </div>
@@ -135,8 +197,8 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
       {showSources && sources.length > 0 && (
         <div className="metadata-dropdown sources-dropdown" ref={sourcesDropdownRef}>
           <div className="dropdown-header">
-            <h4>📚 Sources Referenced</h4>
-            <button className="close-btn" onClick={() => setShowSources(false)}>✕</button>
+            <h4>Sources Referenced</h4>
+            <button className="close-btn" onClick={() => setShowSources(false)}>X</button>
           </div>
           <div className="dropdown-content">
             {sources.map((source, index) => (
@@ -149,7 +211,7 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
                   {source.source_type === 'course_material' ? (
                     <>
                       <div className="source-name">
-                        📄 {source.source_name}
+                        {source.source_name}
                         {source.page_number && <span className="page-info"> (Page {source.page_number})</span>}
                       </div>
                       {source.source_excerpt && (
@@ -158,7 +220,7 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
                     </>
                   ) : source.source_type === 'internet' ? (
                     <>
-                      <div className="source-name">🌐 {source.source_name}</div>
+                      <div className="source-name">{source.source_name}</div>
                       {source.source_url && (
                         <a
                           href={source.source_url}
@@ -187,8 +249,8 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
       {showDetails && trustScore && (
         <div className="metadata-dropdown trust-dropdown" ref={trustDropdownRef}>
           <div className="dropdown-header">
-            <h4>🔍 Verification Details</h4>
-            <button className="close-btn" onClick={() => setShowDetails(false)}>✕</button>
+            <h4>Verification Details</h4>
+            <button className="close-btn" onClick={() => setShowDetails(false)}>X</button>
           </div>
           <div className="dropdown-content">
             <div className="trust-score-display">
@@ -220,7 +282,7 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
 
             {trustScore.conflicts_detected && trustScore.conflicts_detected.length > 0 && (
               <div className="verification-section conflicts">
-                <h5>⚠ Conflicts Detected:</h5>
+                <h5>Conflicts Detected:</h5>
                 <ul>
                   {trustScore.conflicts_detected.map((conflict, index) => (
                     <li key={index}>{conflict}</li>
@@ -250,6 +312,74 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
             <div className="verified-by">
               <small>Verified by: {trustScore.verified_by}</small>
               <small>at {new Date(trustScore.verification_timestamp).toLocaleString()}</small>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fact-Check Details Dropdown */}
+      {showFactCheck && factCheck && factCheck.status === 'completed' && (
+        <div className="metadata-dropdown fact-check-dropdown" ref={factCheckDropdownRef}>
+          <div className="dropdown-header">
+            <h4>Independent Fact-Check (Groq)</h4>
+            <button className="close-btn" onClick={() => setShowFactCheck(false)}>X</button>
+          </div>
+          <div className="dropdown-content">
+            {/* Score Display */}
+            <div className="trust-score-display">
+              <div
+                className="trust-score-circle"
+                style={{ borderColor: getAccuracyScoreColor(factCheck.overall_accuracy_score) }}
+              >
+                <span className="score-number" style={{ color: getAccuracyScoreColor(factCheck.overall_accuracy_score) }}>
+                  {factCheck.overall_accuracy_score}
+                </span>
+                <span className="score-label">/ 100</span>
+              </div>
+              <div className="trust-level-label" style={{ color: getAccuracyScoreColor(factCheck.overall_accuracy_score) }}>
+                {getAccuracyLevelLabel(factCheck.accuracy_level)}
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="verification-section">
+              <h5>Summary:</h5>
+              <p>{factCheck.summary}</p>
+            </div>
+
+            {/* Claim Stats */}
+            <div className="verification-section">
+              <h5>Claims Analysis:</h5>
+              <div className="claim-stats">
+                <span className="claim-stat verified">{factCheck.verified_claims} verified</span>
+                <span className="claim-stat inaccurate">{factCheck.inaccurate_claims} inaccurate</span>
+                <span className="claim-stat unverifiable">{factCheck.unverifiable_claims} unverifiable</span>
+              </div>
+            </div>
+
+            {/* Individual Claims */}
+            {factCheck.claims_checked && factCheck.claims_checked.length > 0 && (
+              <div className="verification-section">
+                <h5>Claim-by-Claim:</h5>
+                {factCheck.claims_checked.map((claim, index) => (
+                  <div
+                    key={index}
+                    className="verification-detail"
+                    style={{ borderLeftColor: getVerdictColor(claim.verdict) }}
+                  >
+                    <div className="detail-header">
+                      <strong>{claim.claim.length > 100 ? claim.claim.substring(0, 100) + '...' : claim.claim}</strong>
+                      <span className={`match-badge ${claim.verdict}`}>{claim.verdict.replace('_', ' ')}</span>
+                    </div>
+                    <p className="detail-evidence">{claim.explanation}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="verified-by">
+              <small>Checked by: Groq ({factCheck.groq_model})</small>
+              <small>in {factCheck.processing_time_ms}ms</small>
             </div>
           </div>
         </div>

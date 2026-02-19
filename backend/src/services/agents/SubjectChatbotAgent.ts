@@ -4,7 +4,8 @@ import { getAIService } from '../ai/AIServiceFactory';
 import { pool } from '../../config/database';
 import { WebSearchService } from '../search/WebSearchService';
 import { searchCourseMaterials as vectorSearchCourseMaterials, getCourseMaterialStats } from '../vectorSearch';
-import { AGENT_CONFIG, VECTOR_SEARCH } from '../../config/constants';
+import { AGENT_CONFIG, VECTOR_SEARCH, EMOTIONAL_FILTER_CONFIG } from '../../config/constants';
+import { getEmotionalFilterService, EmotionalFilterResult } from '../emotional/EmotionalFilterService';
 
 /**
  * Subject-Specific Chatbot Agent
@@ -207,8 +208,39 @@ Please provide a comprehensive, helpful answer.`;
         this.metadata.systemPrompt
       );
 
+      // Apply emotional filter to adjust response tone based on student's emotional state
+      let finalContent = aiResponse.content;
+      let emotionalFilterResult: EmotionalFilterResult | null = null;
+
+      if (EMOTIONAL_FILTER_CONFIG.ENABLED) {
+        try {
+          const emotionalFilter = getEmotionalFilterService();
+
+          if (emotionalFilter.isEnabled()) {
+            emotionalFilterResult = await emotionalFilter.filterResponse(
+              aiResponse.content,
+              message.content,
+              context.conversationHistory,
+              {
+                title: context.courseMetadata?.title,
+                topic: context.courseMetadata?.description
+              }
+            );
+
+            finalContent = emotionalFilterResult.adjustedResponse;
+
+            if (emotionalFilterResult.wasAdjusted) {
+              console.log(`🎭 Emotional filter applied: ${emotionalFilterResult.emotionalContext.currentState.primary} (${emotionalFilterResult.emotionalContext.currentState.intensity}) → ${emotionalFilterResult.emotionalContext.recommendedTone} tone`);
+            }
+          }
+        } catch (emotionalError: any) {
+          console.warn('⚠️ Emotional filter failed, using original response:', emotionalError.message);
+          // Continue with original response if emotional filter fails
+        }
+      }
+
       // Extract sources from the response (including web sources)
-      const sources = this.extractSources(aiResponse.content, relevantMaterials, webSearchResults);
+      const sources = this.extractSources(finalContent, relevantMaterials, webSearchResults);
 
       // Store sources in database
       if (message.sessionId && message.messageId) {
@@ -223,13 +255,18 @@ Please provide a comprehensive, helpful answer.`;
         courseId,
         message.sessionId || null,
         { question: message.content, webSearchUsed: shouldSearchWeb },
-        { answer: aiResponse.content, sourcesCount: sources.length, webResultsCount: webSearchResults.length },
+        {
+          answer: finalContent,
+          sourcesCount: sources.length,
+          webResultsCount: webSearchResults.length,
+          emotionalFilterApplied: emotionalFilterResult?.wasAdjusted || false
+        },
         aiResponse.confidence || 0.8,
         executionTime
       );
 
       return {
-        content: aiResponse.content,
+        content: finalContent,
         confidence: aiResponse.confidence || 0.8,
         requiresReview: aiResponse.requiresReview || false,
         sources: sources,
@@ -237,7 +274,14 @@ Please provide a comprehensive, helpful answer.`;
           sourcesProvided: sources.length,
           materialsSearched: relevantMaterials.length,
           webSearchUsed: shouldSearchWeb,
-          webResultsFound: webSearchResults.length
+          webResultsFound: webSearchResults.length,
+          emotionalFilter: emotionalFilterResult ? {
+            applied: emotionalFilterResult.wasAdjusted,
+            detectedEmotion: emotionalFilterResult.emotionalContext.currentState.primary,
+            emotionIntensity: emotionalFilterResult.emotionalContext.currentState.intensity,
+            appliedTone: emotionalFilterResult.emotionalContext.recommendedTone,
+            processingTimeMs: emotionalFilterResult.processingTimeMs
+          } : undefined
         }
       };
 

@@ -13,6 +13,7 @@ import { SubjectChatbotAgent } from '../services/agents/SubjectChatbotAgent';
 import { EnhancedIntegrityVerificationAgent } from '../services/agents/EnhancedIntegrityVerificationAgent';
 import { AgentMessage } from '../services/agents/newAgentTypes';
 import { AIContext, AIMessage } from '../services/ai/types';
+import { getGroqFactCheckService } from '../services/factcheck/GroqFactCheckService';
 import fs from 'fs';
 import path from 'path';
 
@@ -459,7 +460,8 @@ router.post(
          RETURNING *`,
         [parsedSessionId, 'agent', agentResponse.content, JSON.stringify({
           confidence: agentResponse.confidence,
-          sourcesCount: agentResponse.sources?.length || 0
+          sourcesCount: agentResponse.sources?.length || 0,
+          emotionalFilter: agentResponse.metadata?.emotionalFilter || null
         })]
       );
 
@@ -534,6 +536,24 @@ router.post(
               await new Promise(resolve => setTimeout(resolve, waitTime));
             }
           }
+        }
+      })();
+
+      // Run Groq fact-check in background (INDEPENDENT of Gemini verification)
+      (async () => {
+        try {
+          const factChecker = getGroqFactCheckService();
+          if (factChecker.isEnabled()) {
+            await factChecker.factCheck(
+              savedAgentMessageId,
+              agentResponse.content,
+              sanitizedContent,
+              conversationHistory,
+              { title: course.title, description: course.description }
+            );
+          }
+        } catch (err: any) {
+          logToFile('Fact-check error (non-blocking): ' + err.message);
         }
       })();
 
@@ -898,6 +918,49 @@ router.get('/messages/:messageId/trust-score', async (req: Request, res: Respons
   } catch (error) {
     console.error('Error fetching trust score:', error);
     res.status(500).json({ error: 'Failed to fetch trust score' });
+  }
+});
+
+// Get fact-check result for a message (Groq independent verification)
+router.get('/messages/:messageId/fact-check', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { messageId } = req.params;
+
+    // Verify user has access to this message
+    const messageCheck = await pool.query(
+      `SELECT cm.id
+       FROM chat_messages cm
+       JOIN chat_sessions cs ON cm.session_id = cs.id
+       WHERE cm.id = $1 AND cs.student_id = $2`,
+      [messageId, userId]
+    );
+
+    if (messageCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Access denied to this message' });
+    }
+
+    // Get fact-check result
+    const factCheckResult = await pool.query(
+      'SELECT * FROM fact_check_results WHERE message_id = $1',
+      [messageId]
+    );
+
+    if (factCheckResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Fact-check result not yet available' });
+    }
+
+    res.json({
+      message: 'Fact-check result retrieved successfully',
+      factCheck: factCheckResult.rows[0]
+    });
+  } catch (error) {
+    console.error('Error fetching fact-check result:', error);
+    res.status(500).json({ error: 'Failed to fetch fact-check result' });
   }
 });
 

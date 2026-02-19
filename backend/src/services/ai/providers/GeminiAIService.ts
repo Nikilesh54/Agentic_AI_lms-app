@@ -171,6 +171,37 @@ export class GeminiAIService implements IAIService {
     return parts.join('\n');
   }
 
+  /**
+   * Get a model with a static system instruction for implicit caching.
+   * Gemini's implicit caching works best when the system prompt is set via
+   * systemInstruction and stays identical across requests for the same course.
+   */
+  private getModelWithSystemInstruction(systemPrompt: string, useGrounding?: boolean): GenerativeModel {
+    return this.genAI.getGenerativeModel({
+      model: this.config.model || 'gemini-2.0-flash-exp',
+      generationConfig: {
+        temperature: this.config.temperature || 0.7,
+        maxOutputTokens: this.config.maxTokens || 2048,
+      },
+      systemInstruction: useGrounding
+        ? `${systemPrompt}\n\nYou have access to search the web for current information. Use this capability when answering questions that require up-to-date data or information not in the provided context.`
+        : systemPrompt,
+    });
+  }
+
+  /**
+   * Truncate conversation history to reduce input tokens.
+   * Keeps recent exchanges and drops the middle for long conversations.
+   */
+  private truncateHistory(messages: AIMessage[], maxMessages = 12): AIMessage[] {
+    if (messages.length <= maxMessages) return messages;
+
+    // Keep first 2 messages (for context setup) and last (maxMessages-2) messages
+    const head = messages.slice(0, 2);
+    const tail = messages.slice(-(maxMessages - 2));
+    return [...head, { role: 'system' as const, content: '[Earlier conversation truncated for brevity]' }, ...tail];
+  }
+
   async generateResponse(
     messages: AIMessage[],
     context: AIContext,
@@ -182,25 +213,34 @@ export class GeminiAIService implements IAIService {
       const rateLimitKey = context.courseMetadata?.id?.toString() || 'global';
       await this.rateLimiter.checkLimit(rateLimitKey);
 
-      // Build context information
+      // Build context information (variable per request — course materials, assignments)
       const contextString = this.buildContextString(context);
 
-      // Combine system prompt with context
-      let fullSystemPrompt = systemPrompt
-        ? `${systemPrompt}\n\n**Context Information:**\n${contextString}`
-        : `**Context Information:**\n${contextString}`;
+      // OPTIMIZATION: Separate static system prompt from variable context.
+      // Static system prompt goes into systemInstruction (cacheable by Gemini).
+      // Variable context (materials, assignments) goes into the conversation.
+      const staticSystemPrompt = systemPrompt || '';
+      let variableContext = `**Context Information:**\n${contextString}`;
 
       // Add JSON mode instruction if requested
       if (options?.jsonMode) {
-        fullSystemPrompt += '\n\nCRITICAL: Respond with ONLY valid JSON. No markdown code blocks, no explanations, just the JSON object.';
+        variableContext += '\n\nCRITICAL: Respond with ONLY valid JSON. No markdown code blocks, no explanations, just the JSON object.';
       }
 
-      // Convert messages to Gemini format
-      const geminiMessages = this.convertMessagesToGeminiFormat(messages, fullSystemPrompt);
+      // OPTIMIZATION: Truncate conversation history to control token usage
+      const truncatedMessages = this.truncateHistory(messages);
+
+      // Convert messages to Gemini format — variable context is the first message,
+      // NOT part of systemInstruction, so the system prompt prefix stays cacheable
+      const geminiMessages = this.convertMessagesToGeminiFormat(truncatedMessages, variableContext);
 
       // Check if we should use Google Search grounding
       const useGrounding = context.webSearchResults && context.webSearchResults.length > 0;
-      const modelToUse = useGrounding ? this.getModelWithGrounding() : this.model;
+
+      // OPTIMIZATION: Use systemInstruction for static prompt (enables implicit caching)
+      const modelToUse = staticSystemPrompt
+        ? this.getModelWithSystemInstruction(staticSystemPrompt, useGrounding)
+        : (useGrounding ? this.getModelWithGrounding() : this.model);
 
       if (useGrounding) {
         console.log('🌐 Using Google Search grounding for this response...');

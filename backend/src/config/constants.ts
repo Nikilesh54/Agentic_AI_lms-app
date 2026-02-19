@@ -213,6 +213,58 @@ export const TRUST_SCORE = {
 } as const;
 
 // =====================================================
+// EMOTIONAL FILTER CONFIGURATION (Groq)
+// =====================================================
+export const EMOTIONAL_FILTER_CONFIG = {
+  /** Enable emotional filtering globally */
+  ENABLED: process.env.EMOTIONAL_FILTER_ENABLED !== 'false',
+
+  /** Groq model to use for emotional analysis (fast models recommended) */
+  MODEL: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+
+  /** Maximum conversation history messages to analyze */
+  MAX_HISTORY_MESSAGES: 10,
+
+  /** Emotions that trigger adjustment */
+  TRIGGER_EMOTIONS: ['frustrated', 'confused', 'anxious', 'discouraged', 'overwhelmed'] as const,
+
+  /** Minimum intensity to trigger adjustment for trigger emotions */
+  MIN_TRIGGER_INTENSITY: 'moderate' as const,
+
+  /** Maximum tokens for emotional analysis */
+  ANALYSIS_MAX_TOKENS: 500,
+
+  /** Maximum tokens for response adjustment */
+  ADJUSTMENT_MAX_TOKENS: 2048,
+
+  /** Temperature for emotional analysis (lower = more consistent) */
+  ANALYSIS_TEMPERATURE: 0.3,
+
+  /** Temperature for response adjustment */
+  ADJUSTMENT_TEMPERATURE: 0.4,
+} as const;
+
+// =====================================================
+// FACT-CHECK CONFIGURATION (Groq - Independent Verification)
+// =====================================================
+export const FACT_CHECK_CONFIG = {
+  /** Enable fact-checking globally */
+  ENABLED: process.env.FACT_CHECK_ENABLED !== 'false',
+
+  /** Groq model to use for fact-checking */
+  MODEL: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+
+  /** Temperature for fact-checking (lower = more consistent) */
+  TEMPERATURE: 0.2,
+
+  /** Maximum tokens for fact-check response */
+  MAX_TOKENS: 1000,
+
+  /** Maximum conversation history entries to include */
+  MAX_HISTORY_ENTRIES: 6,
+} as const;
+
+// =====================================================
 // CHAIN-OF-VERIFICATION (CoVe) CONFIGURATION
 // =====================================================
 export const COVE_CONFIG = {

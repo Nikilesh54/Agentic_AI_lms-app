@@ -30,6 +30,12 @@ export async function runMigrations(): Promise<void> {
     await client.query(ragMigrationSQL);
     console.log('✓ RAG System schema migration completed successfully');
 
+    // Migration 4: Fact-Check System (Groq independent verification)
+    const factCheckMigrationPath = path.join(__dirname, 'fact-check-schema.sql');
+    const factCheckMigrationSQL = fs.readFileSync(factCheckMigrationPath, 'utf8');
+    await client.query(factCheckMigrationSQL);
+    console.log('✓ Fact-Check schema migration completed successfully');
+
   } catch (error) {
     console.error('Error running migrations:', error);
     throw error;
