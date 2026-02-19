@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast';
-import { rootAPI } from '../services/api';
+import { rootAPI, usageAPI } from '../services/api';
 import './RootDashboard.css';
 
 interface PendingProfessor {
@@ -57,7 +57,7 @@ const RootDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'professors' | 'users' | 'courses' | 'files'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'professors' | 'users' | 'courses' | 'files' | 'usage'>('overview');
   const [loading, setLoading] = useState(false);
 
   // State
@@ -69,6 +69,11 @@ const RootDashboard: React.FC = () => {
   const [materials, setMaterials] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [fileStats, setFileStats] = useState<any>(null);
+  const [usageSummary, setUsageSummary] = useState<any[]>([]);
+  const [usageStats, setUsageStats] = useState<any>(null);
+  const [usageLogs, setUsageLogs] = useState<any[]>([]);
+  const [usageFilter, setUsageFilter] = useState<string>('');
+  const [usageView, setUsageView] = useState<'summary' | 'logs'>('summary');
 
   // New course form
   const [showAddCourse, setShowAddCourse] = useState(false);
@@ -86,6 +91,7 @@ const RootDashboard: React.FC = () => {
     if (activeTab === 'users') loadUsers();
     if (activeTab === 'courses') loadCourses();
     if (activeTab === 'files') loadFiles();
+    if (activeTab === 'usage') loadUsage();
   }, [activeTab]);
 
   const loadStats = async () => {
@@ -282,6 +288,25 @@ const RootDashboard: React.FC = () => {
     }
   };
 
+  const loadUsage = async () => {
+    try {
+      setLoading(true);
+      const params = usageFilter ? { actionType: usageFilter } : undefined;
+      const [summaryRes, statsRes, logsRes] = await Promise.all([
+        usageAPI.getSummary(params),
+        usageAPI.getStats(),
+        usageAPI.getLogs({ ...params, limit: 50 }),
+      ]);
+      setUsageSummary(summaryRes.data.summary || []);
+      setUsageStats(statsRes.data.stats || null);
+      setUsageLogs(logsRes.data.logs || []);
+    } catch (error) {
+      showToast('Failed to load usage data', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
@@ -355,6 +380,12 @@ const RootDashboard: React.FC = () => {
           onClick={() => setActiveTab('files')}
         >
           Files
+        </button>
+        <button
+          className={`tab ${activeTab === 'usage' ? 'active' : ''}`}
+          onClick={() => setActiveTab('usage')}
+        >
+          Usage Logs
         </button>
       </div>
 
@@ -795,6 +826,164 @@ const RootDashboard: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Usage Logs Tab */}
+        {activeTab === 'usage' && (
+          <div className="usage-section">
+            <div className="section-header">
+              <h2>API Usage Logs</h2>
+              <div className="usage-controls">
+                <select
+                  value={usageFilter}
+                  onChange={(e) => {
+                    setUsageFilter(e.target.value);
+                    // Reload with new filter after state update
+                    setTimeout(() => loadUsage(), 0);
+                  }}
+                  className="usage-filter-select"
+                  title="Filter by action type"
+                >
+                  <option value="">All Actions</option>
+                  <option value="file_upload">File Uploads</option>
+                  <option value="llm_request">LLM Requests</option>
+                  <option value="grading_request">Grading Requests</option>
+                  <option value="file_download">File Downloads</option>
+                </select>
+                <div className="usage-view-toggle">
+                  <button
+                    type="button"
+                    className={`toggle-btn ${usageView === 'summary' ? 'active' : ''}`}
+                    onClick={() => setUsageView('summary')}
+                  >
+                    Per User
+                  </button>
+                  <button
+                    type="button"
+                    className={`toggle-btn ${usageView === 'logs' ? 'active' : ''}`}
+                    onClick={() => setUsageView('logs')}
+                  >
+                    Detailed Logs
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {usageStats && (
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <h3>{usageStats.total_file_uploads}</h3>
+                  <p>File Uploads</p>
+                </div>
+                <div className="stat-card">
+                  <h3>{usageStats.total_llm_requests}</h3>
+                  <p>LLM Requests</p>
+                </div>
+                <div className="stat-card">
+                  <h3>{usageStats.total_grading_requests}</h3>
+                  <p>Grading Requests</p>
+                </div>
+                <div className="stat-card highlight">
+                  <h3>{usageStats.total_actions}</h3>
+                  <p>Total Actions</p>
+                </div>
+                <div className="stat-card">
+                  <h3>{usageStats.unique_users}</h3>
+                  <p>Active Users</p>
+                </div>
+              </div>
+            )}
+
+            {/* Per-User Summary View */}
+            {usageView === 'summary' && (
+              <div className="files-subsection">
+                <h3>Usage Per User</h3>
+                {usageSummary.length === 0 ? (
+                  <p className="empty-message">No usage data yet</p>
+                ) : (
+                  <div className="table-container">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>User</th>
+                          <th>Role</th>
+                          <th>File Uploads</th>
+                          <th>LLM Requests</th>
+                          <th>Grading</th>
+                          <th>Total</th>
+                          <th>Last Active</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {usageSummary.map((row: any) => (
+                          <tr key={row.user_id}>
+                            <td>
+                              <div>{row.full_name}</div>
+                              <small className="text-muted">{row.email}</small>
+                            </td>
+                            <td>
+                              <span className={`role-badge ${row.role}`}>{row.role}</span>
+                            </td>
+                            <td>{row.file_uploads}</td>
+                            <td>{row.llm_requests}</td>
+                            <td>{row.grading_requests}</td>
+                            <td><strong>{row.total_actions}</strong></td>
+                            <td>{row.last_activity ? new Date(row.last_activity).toLocaleDateString() : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Detailed Logs View */}
+            {usageView === 'logs' && (
+              <div className="files-subsection">
+                <h3>Recent Activity</h3>
+                {usageLogs.length === 0 ? (
+                  <p className="empty-message">No logs found</p>
+                ) : (
+                  <div className="table-container">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>User</th>
+                          <th>Action</th>
+                          <th>Endpoint</th>
+                          <th>Details</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {usageLogs.map((log: any) => (
+                          <tr key={log.id}>
+                            <td>{new Date(log.created_at).toLocaleString()}</td>
+                            <td>
+                              <div>{log.full_name}</div>
+                              <small className="text-muted">{log.role}</small>
+                            </td>
+                            <td>
+                              <span className={`action-badge ${log.action_type}`}>
+                                {log.action_type.replace('_', ' ')}
+                              </span>
+                            </td>
+                            <td><code className="endpoint-code">{log.endpoint}</code></td>
+                            <td>
+                              {log.metadata?.fileName && <span>{log.metadata.fileName}</span>}
+                              {log.metadata?.responseLength && <span>Response: {log.metadata.responseLength} chars</span>}
+                              {log.metadata?.confidence !== undefined && <span>Confidence: {(log.metadata.confidence * 100).toFixed(0)}%</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </main>

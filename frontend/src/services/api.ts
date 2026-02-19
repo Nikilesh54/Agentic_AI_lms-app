@@ -74,6 +74,18 @@ export const rootAPI = {
     apiClient.get(`/root/files/download/${type}/${fileId}`),
 };
 
+// Usage API (root admin only)
+export const usageAPI = {
+  getSummary: (params?: { actionType?: string; startDate?: string; endDate?: string }) =>
+    apiClient.get('/usage/summary', { params }),
+
+  getLogs: (params?: { userId?: number; actionType?: string; startDate?: string; endDate?: string; limit?: number; offset?: number }) =>
+    apiClient.get('/usage/logs', { params }),
+
+  getStats: () =>
+    apiClient.get('/usage/stats'),
+};
+
 // Professor API
 export const professorAPI = {
   getCourse: () =>

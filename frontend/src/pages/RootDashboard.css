@@ -476,3 +476,111 @@
   justify-content: flex-end;
   margin-top: 2rem;
 }
+
+/* Usage Section */
+.usage-section h2 {
+  font-size: 1.5rem;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.usage-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.usage-filter-select {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: var(--input-bg);
+  color: var(--input-text);
+  cursor: pointer;
+}
+
+.usage-filter-select:focus {
+  outline: none;
+  border-color: var(--input-border-focus);
+  box-shadow: var(--focus-ring);
+}
+
+.usage-view-toggle {
+  display: flex;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.toggle-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  background: var(--color-bg-white);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.toggle-btn:hover {
+  background: var(--color-bg-light);
+}
+
+.toggle-btn.active {
+  background: var(--vt-maroon);
+  color: white;
+}
+
+.action-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.action-badge.file_upload {
+  background: var(--badge-student-bg);
+  color: var(--badge-student-text);
+}
+
+.action-badge.llm_request {
+  background: var(--badge-admin-bg);
+  color: var(--badge-admin-text);
+}
+
+.action-badge.grading_request {
+  background: var(--badge-professor-bg);
+  color: var(--badge-professor-text);
+}
+
+.action-badge.file_download {
+  background: var(--badge-active-bg);
+  color: var(--badge-active-text);
+}
+
+.endpoint-code {
+  font-family: monospace;
+  font-size: 0.75rem;
+  background: var(--color-bg-light);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.text-muted {
+  color: var(--color-text-light);
+}
+
+.files-subsection {
+  margin-top: 2rem;
+}
+
+.files-subsection h3 {
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+  color: var(--color-text-primary);
+}
