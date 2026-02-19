@@ -36,8 +36,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       throw new Error('Text cannot be empty');
     }
 
-    // Use Google's text-embedding-004 model (768 dimensions)
-    const model = getGenAI().getGenerativeModel({ model: 'text-embedding-004' });
+    // Use Google's text-embedding-005 model (768 dimensions)
+    const model = getGenAI().getGenerativeModel({ model: 'text-embedding-005' });
 
     const result = await model.embedContent(text);
 

@@ -64,7 +64,7 @@ export class AIServiceFactory {
     return {
       provider: (process.env.AI_PROVIDER as any) || 'gemini',
       apiKey: process.env.GOOGLE_AI_API_KEY || process.env.AI_API_KEY,
-      model: process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.0-flash-exp',
+      model: process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.5-flash',
       temperature: parseFloat(process.env.AI_TEMPERATURE || '0.7'),
       maxTokens: parseInt(process.env.AI_MAX_TOKENS || '2048'),
       streamingEnabled: process.env.AI_STREAMING_ENABLED === 'true',

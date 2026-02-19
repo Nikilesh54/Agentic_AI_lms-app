@@ -37,7 +37,7 @@ export class GeminiAIService implements IAIService {
     // Initialize the model with configuration
     // Note: We don't set tools here - we'll set them per-request based on context
     this.model = this.genAI.getGenerativeModel({
-      model: config.model || 'gemini-2.0-flash-exp',
+      model: config.model || 'gemini-2.5-flash',
       generationConfig: {
         temperature: config.temperature || 0.7,
         maxOutputTokens: config.maxTokens || 2048,
@@ -53,7 +53,7 @@ export class GeminiAIService implements IAIService {
     // For now, use the same model but with a system instruction to use web knowledge
     // True grounding will require Gemini API configuration at the API level
     return this.genAI.getGenerativeModel({
-      model: this.config.model || 'gemini-2.0-flash-exp',
+      model: this.config.model || 'gemini-2.5-flash',
       generationConfig: {
         temperature: this.config.temperature || 0.7,
         maxOutputTokens: this.config.maxTokens || 2048,
@@ -178,7 +178,7 @@ export class GeminiAIService implements IAIService {
    */
   private getModelWithSystemInstruction(systemPrompt: string, useGrounding?: boolean): GenerativeModel {
     return this.genAI.getGenerativeModel({
-      model: this.config.model || 'gemini-2.0-flash-exp',
+      model: this.config.model || 'gemini-2.5-flash',
       generationConfig: {
         temperature: this.config.temperature || 0.7,
         maxOutputTokens: this.config.maxTokens || 2048,
