@@ -6,6 +6,10 @@ import { WebSearchService } from '../search/WebSearchService';
 import { searchCourseMaterials as vectorSearchCourseMaterials, getCourseMaterialStats } from '../vectorSearch';
 import { AGENT_CONFIG, VECTOR_SEARCH, EMOTIONAL_FILTER_CONFIG } from '../../config/constants';
 import { getEmotionalFilterService, EmotionalFilterResult } from '../emotional/EmotionalFilterService';
+import { downloadFile } from '../../config/storage';
+import { extractTextFromFile } from '../documentProcessor';
+import { generateEmbeddings } from '../embeddingService';
+import { embeddingToPostgresVector } from '../embeddingService';
 
 /**
  * Subject-Specific Chatbot Agent
@@ -307,6 +311,7 @@ Please provide a comprehensive, helpful answer.`;
 
   /**
    * Search course materials for relevant content using vector similarity
+   * with fallback to direct database lookup when vector search fails
    */
   private async searchCourseMaterials(
     courseId: number,
@@ -328,36 +333,408 @@ Please provide a comprehensive, helpful answer.`;
       );
 
       // Use vector search to find semantically relevant chunks
-      const searchResults = await vectorSearchCourseMaterials(courseId, query, {
-        topK: limit,
-        minSimilarity: VECTOR_SEARCH.MIN_SIMILARITY,
-        includeMetadata: true
-      });
+      let materials: CourseMaterial[] = [];
 
-      // Convert search results to CourseMaterial format for backward compatibility
-      const materials: CourseMaterial[] = searchResults.map(result => ({
-        id: result.material_id,
-        course_id: courseId,
-        file_name: result.file_name,
-        file_path: result.file_path,
-        file_type: result.file_type,
-        content_text: result.chunk_text,  // Now contains actual content from the chunk!
-        page_number: result.page_number,
-        chunk_index: result.chunk_index,
-        similarity_score: result.similarity_score,
-        uploaded_at: result.uploaded_at
-      }));
+      if (stats.totalChunks > 0) {
+        const searchResults = await vectorSearchCourseMaterials(courseId, query, {
+          topK: limit,
+          minSimilarity: VECTOR_SEARCH.MIN_SIMILARITY,
+          includeMetadata: true
+        });
 
-      console.log(`✓ Found ${materials.length} relevant chunks (avg similarity: ${
+        // Convert search results to CourseMaterial format for backward compatibility
+        materials = searchResults.map(result => ({
+          id: result.material_id,
+          course_id: courseId,
+          file_name: result.file_name,
+          file_path: result.file_path,
+          file_type: result.file_type,
+          content_text: result.chunk_text,
+          page_number: result.page_number,
+          chunk_index: result.chunk_index,
+          similarity_score: result.similarity_score,
+          uploaded_at: result.uploaded_at
+        }));
+      }
+
+      console.log(`✓ Found ${materials.length} relevant chunks from vector search (avg similarity: ${
         materials.length > 0
           ? (materials.reduce((sum, m) => sum + (m.similarity_score || 0), 0) / materials.length).toFixed(2)
           : 0
       })`);
 
+      // FALLBACK: If vector search returned insufficient results, try direct content lookup
+      if (materials.length < 3) {
+        console.log('⚠️ Vector search returned insufficient results, attempting fallback...');
+        const fallbackMaterials = await this.fallbackContentLookup(courseId, query, materials);
+        if (fallbackMaterials.length > 0) {
+          materials = [...materials, ...fallbackMaterials];
+          console.log(`✓ Fallback added ${fallbackMaterials.length} materials (total: ${materials.length})`);
+        }
+      }
+
       return materials;
     } catch (error) {
-      console.error('Error in vector search, falling back to empty results:', error);
-      // Return empty array instead of failing completely
+      console.error('Error in vector search, attempting fallback:', error);
+      // Try fallback even if vector search completely fails
+      try {
+        return await this.fallbackContentLookup(courseId, query, []);
+      } catch (fallbackError) {
+        console.error('Fallback also failed:', fallbackError);
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Fallback: Look up course materials directly from the database
+   * when vector search returns no results (e.g., embeddings missing).
+   *
+   * Strategy:
+   * 1. Check if user's query references a specific filename
+   * 2. Fetch content directly from course_material_content table
+   * 3. If content is empty, try to re-extract from GCS and generate embeddings
+   */
+  private async fallbackContentLookup(
+    courseId: number,
+    query: string,
+    existingMaterials: CourseMaterial[]
+  ): Promise<CourseMaterial[]> {
+    const existingMaterialIds = new Set(existingMaterials.map(m => m.id));
+    const fallbackMaterials: CourseMaterial[] = [];
+
+    // Step 1: Check if user mentions a specific filename
+    const referencedMaterial = await this.findReferencedMaterial(courseId, query);
+
+    if (referencedMaterial && !existingMaterialIds.has(referencedMaterial.id)) {
+      console.log(`📎 User referenced file: "${referencedMaterial.file_name}" - fetching content directly`);
+
+      // Fetch content from course_material_content table
+      const content = await this.fetchStoredContent(referencedMaterial.id);
+
+      if (content && content.trim().length > 0) {
+        // Content exists in DB - split into chunks for the AI
+        const contentChunks = this.splitContentForContext(content, referencedMaterial.file_name);
+        for (const chunk of contentChunks) {
+          fallbackMaterials.push({
+            id: referencedMaterial.id,
+            course_id: courseId,
+            file_name: referencedMaterial.file_name,
+            file_path: referencedMaterial.file_path,
+            file_type: referencedMaterial.file_type,
+            content_text: chunk.text,
+            page_number: chunk.page,
+            similarity_score: 0.95, // High score since user explicitly referenced this file
+            uploaded_at: referencedMaterial.uploaded_at
+          });
+        }
+        console.log(`✓ Fetched ${contentChunks.length} chunks from stored content for "${referencedMaterial.file_name}"`);
+      } else {
+        // No stored content - try to re-extract from GCS
+        console.log(`⚠️ No stored content for "${referencedMaterial.file_name}" - attempting GCS re-extraction`);
+        const reExtracted = await this.reExtractFromGCS(referencedMaterial);
+        if (reExtracted.length > 0) {
+          fallbackMaterials.push(...reExtracted.map(chunk => ({
+            ...chunk,
+            course_id: courseId
+          })));
+          console.log(`✓ Re-extracted ${reExtracted.length} chunks from GCS for "${referencedMaterial.file_name}"`);
+        }
+      }
+    }
+
+    // Step 2: If still no results and vector search had 0 results,
+    // fetch ALL course materials' content as a last resort
+    if (fallbackMaterials.length === 0 && existingMaterials.length === 0) {
+      console.log('📚 No specific file referenced - fetching all course material content...');
+      const allMaterials = await this.fetchAllCourseContent(courseId);
+
+      for (const mat of allMaterials) {
+        if (existingMaterialIds.has(mat.id)) continue;
+        fallbackMaterials.push(mat);
+      }
+
+      if (fallbackMaterials.length > 0) {
+        console.log(`✓ Fetched content from ${fallbackMaterials.length} materials as fallback`);
+      }
+    }
+
+    return fallbackMaterials;
+  }
+
+  /**
+   * Find a course material referenced by filename in the user's query
+   */
+  private async findReferencedMaterial(
+    courseId: number,
+    query: string
+  ): Promise<{ id: number; file_name: string; file_path: string; file_type: string; uploaded_at: Date } | null> {
+    try {
+      // Get all materials for this course
+      const result = await pool.query(
+        `SELECT id, file_name, file_path, file_type, uploaded_at
+         FROM course_materials
+         WHERE course_id = $1 AND is_active = true
+         ORDER BY uploaded_at DESC`,
+        [courseId]
+      );
+
+      const queryLower = query.toLowerCase();
+
+      // Check if the query mentions any filename (with or without extension)
+      for (const row of result.rows) {
+        const fileName = row.file_name.toLowerCase();
+        const fileNameWithoutExt = fileName.replace(/\.[^/.]+$/, '');
+
+        if (queryLower.includes(fileName) || queryLower.includes(fileNameWithoutExt)) {
+          return row;
+        }
+
+        // Also check for partial matches (e.g., "anti cyber bullying" matching "AI Powered Anti-Cyber Bullying System.pdf")
+        // Normalize both strings for fuzzy matching
+        const normalizedFileName = fileNameWithoutExt.replace(/[-_]/g, ' ').replace(/\s+/g, ' ');
+        const normalizedQuery = queryLower.replace(/[-_]/g, ' ').replace(/\s+/g, ' ');
+
+        // Check if significant words from the filename appear in the query
+        const fileWords = normalizedFileName.split(' ').filter((w: string) => w.length > 2);
+        const matchingWords = fileWords.filter((w: string) => normalizedQuery.includes(w));
+        const matchRatio = matchingWords.length / fileWords.length;
+
+        if (matchRatio >= 0.5 && fileWords.length >= 2) {
+          console.log(`📎 Fuzzy filename match: "${row.file_name}" (${(matchRatio * 100).toFixed(0)}% words matched)`);
+          return row;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error finding referenced material:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch stored content text from course_material_content table
+   */
+  private async fetchStoredContent(materialId: number): Promise<string | null> {
+    try {
+      const result = await pool.query(
+        `SELECT content_text, content_chunks, metadata
+         FROM course_material_content
+         WHERE material_id = $1`,
+        [materialId]
+      );
+
+      if (result.rows.length === 0) return null;
+
+      const row = result.rows[0];
+
+      // Check if extraction had failed
+      if (row.metadata?.extraction_method === 'failed') {
+        console.warn(`⚠️ Previous text extraction failed for material ${materialId}: ${row.metadata?.error}`);
+        return null;
+      }
+
+      return row.content_text || null;
+    } catch (error) {
+      console.error('Error fetching stored content:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Split content into manageable chunks for AI context
+   */
+  private splitContentForContext(
+    content: string,
+    fileName: string,
+    maxChunkSize: number = 2000
+  ): Array<{ text: string; page?: number }> {
+    const chunks: Array<{ text: string; page?: number }> = [];
+    const words = content.split(/\s+/);
+
+    // Split into chunks of ~maxChunkSize characters
+    let currentChunk = '';
+    let chunkPage = 1;
+
+    for (const word of words) {
+      if (currentChunk.length + word.length + 1 > maxChunkSize && currentChunk.length > 0) {
+        chunks.push({ text: currentChunk.trim(), page: chunkPage });
+        currentChunk = word;
+        chunkPage++;
+      } else {
+        currentChunk += (currentChunk ? ' ' : '') + word;
+      }
+    }
+
+    if (currentChunk.trim().length > 0) {
+      chunks.push({ text: currentChunk.trim(), page: chunkPage });
+    }
+
+    // Limit to avoid overwhelming the AI context
+    return chunks.slice(0, 15);
+  }
+
+  /**
+   * Re-extract text from GCS when stored content is missing,
+   * and generate embeddings for future queries.
+   */
+  private async reExtractFromGCS(material: {
+    id: number;
+    file_name: string;
+    file_path: string;
+    file_type: string;
+    uploaded_at: Date;
+  }): Promise<CourseMaterial[]> {
+    try {
+      // Download file from GCS
+      const fileBuffer = await downloadFile(material.file_path);
+      console.log(`✓ Downloaded ${material.file_name} from GCS (${fileBuffer.length} bytes)`);
+
+      // Extract text
+      const processedDoc = await extractTextFromFile(
+        fileBuffer,
+        material.file_name,
+        material.file_type
+      );
+
+      if (!processedDoc.content_text || processedDoc.content_text.trim().length === 0) {
+        console.warn(`⚠️ Text extraction returned empty content for ${material.file_name}`);
+        return [];
+      }
+
+      console.log(`✓ Extracted ${processedDoc.content_chunks.length} chunks from ${material.file_name}`);
+
+      // Store the extracted content in the database for future use
+      await pool.query(
+        `INSERT INTO course_material_content (material_id, content_text, content_chunks, metadata)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (material_id) DO UPDATE
+         SET content_text = EXCLUDED.content_text,
+             content_chunks = EXCLUDED.content_chunks,
+             metadata = EXCLUDED.metadata,
+             last_indexed_at = CURRENT_TIMESTAMP`,
+        [
+          material.id,
+          processedDoc.content_text,
+          JSON.stringify(processedDoc.content_chunks),
+          JSON.stringify(processedDoc.metadata)
+        ]
+      );
+
+      // Generate and store embeddings in background (don't block the response)
+      this.generateEmbeddingsInBackground(material.id, processedDoc.content_chunks).catch(err => {
+        console.error(`Background embedding generation failed for ${material.file_name}:`, err);
+      });
+
+      // Return content as CourseMaterial chunks for immediate use
+      return processedDoc.content_chunks.slice(0, 15).map(chunk => ({
+        id: material.id,
+        course_id: 0, // Will be set by caller
+        file_name: material.file_name,
+        file_path: material.file_path,
+        file_type: material.file_type,
+        content_text: chunk.text,
+        page_number: chunk.metadata.page_number,
+        chunk_index: chunk.metadata.chunk_index,
+        similarity_score: 0.9, // High score since this is a direct file lookup
+        uploaded_at: material.uploaded_at
+      }));
+    } catch (error) {
+      console.error(`Error re-extracting from GCS for ${material.file_name}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Generate embeddings for chunks in the background so future queries
+   * can use vector search instead of the fallback.
+   */
+  private async generateEmbeddingsInBackground(
+    materialId: number,
+    chunks: Array<{ chunk_id: string; text: string; metadata: any }>
+  ): Promise<void> {
+    try {
+      console.log(`🔄 Background: Generating embeddings for material ${materialId} (${chunks.length} chunks)...`);
+
+      const chunkTexts = chunks.map(c => c.text);
+      const embeddings = await generateEmbeddings(chunkTexts, 5);
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const embedding = embeddings[i];
+
+        await pool.query(
+          `INSERT INTO course_material_embeddings
+           (material_id, chunk_id, chunk_text, chunk_metadata, embedding)
+           VALUES ($1, $2, $3, $4, $5::vector)
+           ON CONFLICT (material_id, chunk_id) DO UPDATE
+           SET chunk_text = EXCLUDED.chunk_text,
+               chunk_metadata = EXCLUDED.chunk_metadata,
+               embedding = EXCLUDED.embedding,
+               created_at = CURRENT_TIMESTAMP`,
+          [
+            materialId,
+            chunk.chunk_id,
+            chunk.text,
+            JSON.stringify(chunk.metadata),
+            embeddingToPostgresVector(embedding)
+          ]
+        );
+      }
+
+      console.log(`✅ Background: Generated and stored ${embeddings.length} embeddings for material ${materialId}`);
+    } catch (error) {
+      console.error(`❌ Background embedding generation failed for material ${materialId}:`, error);
+    }
+  }
+
+  /**
+   * Fetch content from all course materials as a last resort fallback.
+   * Used when vector search returns nothing and no specific file is referenced.
+   */
+  private async fetchAllCourseContent(courseId: number): Promise<CourseMaterial[]> {
+    try {
+      const result = await pool.query(
+        `SELECT cm.id, cm.file_name, cm.file_path, cm.file_type, cm.uploaded_at,
+                cmc.content_text
+         FROM course_materials cm
+         LEFT JOIN course_material_content cmc ON cm.id = cmc.material_id
+         WHERE cm.course_id = $1 AND cm.is_active = true
+         ORDER BY cm.uploaded_at DESC
+         LIMIT 10`,
+        [courseId]
+      );
+
+      const materials: CourseMaterial[] = [];
+
+      for (const row of result.rows) {
+        if (row.content_text && row.content_text.trim().length > 0) {
+          // Truncate content to avoid overwhelming the AI
+          const truncatedContent = row.content_text.substring(0, 3000);
+          materials.push({
+            id: row.id,
+            course_id: courseId,
+            file_name: row.file_name,
+            file_path: row.file_path,
+            file_type: row.file_type,
+            content_text: truncatedContent,
+            similarity_score: 0.7,
+            uploaded_at: row.uploaded_at
+          });
+        } else {
+          // Material exists but has no content - try re-extraction
+          console.log(`⚠️ Material "${row.file_name}" has no stored content - attempting GCS re-extraction`);
+          const reExtracted = await this.reExtractFromGCS(row);
+          if (reExtracted.length > 0) {
+            materials.push(...reExtracted.map(m => ({ ...m, course_id: courseId })));
+          }
+        }
+      }
+
+      return materials;
+    } catch (error) {
+      console.error('Error fetching all course content:', error);
       return [];
     }
   }
