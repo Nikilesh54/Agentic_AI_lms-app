@@ -3,6 +3,7 @@ import { pool } from '../config/database';
 import { authenticate, authorize, requireActiveStatus } from '../middleware/auth';
 import { uploadSubmissionFiles, validateSubmissionSize, handleMulterError } from '../middleware/upload';
 import { uploadFile, generateSignedUrl } from '../config/storage';
+import { logUsage } from '../utils/usageLogger';
 
 const router = express.Router();
 
@@ -535,6 +536,25 @@ router.post('/assignments/:assignmentId/submit', uploadSubmissionFiles, validate
     }
 
     await client.query('COMMIT');
+
+    // Log file uploads for this submission
+    for (const file of uploadedFiles) {
+      logUsage({
+        userId: req.user!.userId,
+        actionType: 'file_upload',
+        endpoint: `/api/student/assignments/${assignmentId}/submit`,
+        method: 'POST',
+        statusCode: 201,
+        metadata: {
+          assignmentId,
+          submissionId,
+          fileId: file.id,
+          fileName: file.file_name,
+          fileSize: file.file_size,
+          fileType: file.file_type,
+        },
+      });
+    }
 
     // Trigger auto-grading in background (don't wait for it)
     // Student will see tentative grade asynchronously

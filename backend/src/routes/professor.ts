@@ -5,6 +5,7 @@ import { uploadCourseMaterials, uploadAssignmentFiles, handleMulterError } from 
 import { uploadFile, deleteFile, generateSignedUrl, downloadFile } from '../config/storage';
 import { extractTextFromFile } from '../services/documentProcessor';
 import { generateEmbeddings, embeddingToPostgresVector } from '../services/embeddingService';
+import { logUsage } from '../utils/usageLogger';
 
 const router = express.Router();
 
@@ -672,6 +673,24 @@ router.post('/materials', uploadCourseMaterials, handleMulterError, async (req: 
 
     await client.query('COMMIT');
 
+    // Log each file upload
+    for (const material of uploadedMaterials) {
+      logUsage({
+        userId: req.user!.userId,
+        actionType: 'file_upload',
+        endpoint: '/api/professor/materials',
+        method: 'POST',
+        statusCode: 201,
+        metadata: {
+          courseId,
+          materialId: material.id,
+          fileName: material.file_name,
+          fileSize: material.file_size,
+          fileType: material.file_type,
+        },
+      });
+    }
+
     res.status(201).json({
       message: 'Course materials uploaded successfully',
       materials: uploadedMaterials
@@ -878,6 +897,25 @@ router.post('/assignments/:assignmentId/files', uploadAssignmentFiles, handleMul
     }
 
     await client.query('COMMIT');
+
+    // Log each file upload
+    for (const file of uploadedFiles) {
+      logUsage({
+        userId: req.user!.userId,
+        actionType: 'file_upload',
+        endpoint: `/api/professor/assignments/${assignmentId}/files`,
+        method: 'POST',
+        statusCode: 201,
+        metadata: {
+          courseId,
+          assignmentId,
+          fileId: file.id,
+          fileName: file.file_name,
+          fileSize: file.file_size,
+          fileType: file.file_type,
+        },
+      });
+    }
 
     res.status(201).json({
       message: 'Assignment files uploaded successfully',

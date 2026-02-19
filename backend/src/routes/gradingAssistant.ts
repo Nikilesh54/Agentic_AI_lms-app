@@ -8,6 +8,7 @@ import {
   validateRubricCriteria,
   validatePoints
 } from '../middleware/validation';
+import { logUsage } from '../utils/usageLogger';
 
 const router = express.Router();
 
@@ -73,6 +74,20 @@ router.post('/generate-tentative-grade',
       files,
       rubric
     );
+
+    // Log grading LLM usage
+    logUsage({
+      userId,
+      actionType: 'grading_request',
+      endpoint: '/api/grading-assistant/generate-tentative-grade',
+      method: 'POST',
+      statusCode: 200,
+      metadata: {
+        submissionId,
+        assignmentId: submission.assignment_id,
+        assignmentTitle: submission.title,
+      },
+    });
 
     res.status(200).json({
       success: true,

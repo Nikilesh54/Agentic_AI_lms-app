@@ -11,6 +11,7 @@ import professorRoutes from './routes/professor';
 import studentRoutes from './routes/student';
 import chatRoutes from './routes/chat';
 import gradingAssistantRoutes from './routes/gradingAssistant';
+import usageRoutes from './routes/usage';
 import { connectDB } from './config/database';
 
 dotenv.config();
@@ -63,6 +64,7 @@ app.use('/api/professor', professorRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/grading-assistant', gradingAssistantRoutes);
+app.use('/api/usage', usageRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

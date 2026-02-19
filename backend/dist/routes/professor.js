@@ -43,6 +43,7 @@ const upload_1 = require("../middleware/upload");
 const storage_1 = require("../config/storage");
 const documentProcessor_1 = require("../services/documentProcessor");
 const embeddingService_1 = require("../services/embeddingService");
+const usageLogger_1 = require("../utils/usageLogger");
 const router = express_1.default.Router();
 // Apply authentication and authorization to all professor routes
 router.use(auth_1.authenticate);
@@ -518,6 +519,23 @@ router.post('/materials', upload_1.uploadCourseMaterials, upload_1.handleMulterE
             uploadedMaterials.push(result.rows[0]);
         }
         await client.query('COMMIT');
+        // Log each file upload
+        for (const material of uploadedMaterials) {
+            (0, usageLogger_1.logUsage)({
+                userId: req.user.userId,
+                actionType: 'file_upload',
+                endpoint: '/api/professor/materials',
+                method: 'POST',
+                statusCode: 201,
+                metadata: {
+                    courseId,
+                    materialId: material.id,
+                    fileName: material.file_name,
+                    fileSize: material.file_size,
+                    fileType: material.file_type,
+                },
+            });
+        }
         res.status(201).json({
             message: 'Course materials uploaded successfully',
             materials: uploadedMaterials
@@ -660,6 +678,24 @@ router.post('/assignments/:assignmentId/files', upload_1.uploadAssignmentFiles, 
             uploadedFiles.push(result.rows[0]);
         }
         await client.query('COMMIT');
+        // Log each file upload
+        for (const file of uploadedFiles) {
+            (0, usageLogger_1.logUsage)({
+                userId: req.user.userId,
+                actionType: 'file_upload',
+                endpoint: `/api/professor/assignments/${assignmentId}/files`,
+                method: 'POST',
+                statusCode: 201,
+                metadata: {
+                    courseId,
+                    assignmentId,
+                    fileId: file.id,
+                    fileName: file.file_name,
+                    fileSize: file.file_size,
+                    fileType: file.file_type,
+                },
+            });
+        }
         res.status(201).json({
             message: 'Assignment files uploaded successfully',
             files: uploadedFiles

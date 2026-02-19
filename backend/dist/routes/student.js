@@ -41,6 +41,7 @@ const database_1 = require("../config/database");
 const auth_1 = require("../middleware/auth");
 const upload_1 = require("../middleware/upload");
 const storage_1 = require("../config/storage");
+const usageLogger_1 = require("../utils/usageLogger");
 const router = express_1.default.Router();
 // Apply authentication and authorization to all student routes
 router.use(auth_1.authenticate);
@@ -426,6 +427,24 @@ router.post('/assignments/:assignmentId/submit', upload_1.uploadSubmissionFiles,
             }
         }
         await client.query('COMMIT');
+        // Log file uploads for this submission
+        for (const file of uploadedFiles) {
+            (0, usageLogger_1.logUsage)({
+                userId: req.user.userId,
+                actionType: 'file_upload',
+                endpoint: `/api/student/assignments/${assignmentId}/submit`,
+                method: 'POST',
+                statusCode: 201,
+                metadata: {
+                    assignmentId,
+                    submissionId,
+                    fileId: file.id,
+                    fileName: file.file_name,
+                    fileSize: file.file_size,
+                    fileType: file.file_type,
+                },
+            });
+        }
         // Trigger auto-grading in background (don't wait for it)
         // Student will see tentative grade asynchronously
         (async () => {

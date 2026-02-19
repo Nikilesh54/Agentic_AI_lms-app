@@ -14,6 +14,7 @@ import { EnhancedIntegrityVerificationAgent } from '../services/agents/EnhancedI
 import { AgentMessage } from '../services/agents/newAgentTypes';
 import { AIContext, AIMessage } from '../services/ai/types';
 import { getGroqFactCheckService } from '../services/factcheck/GroqFactCheckService';
+import { logUsage } from '../utils/usageLogger';
 import fs from 'fs';
 import path from 'path';
 
@@ -467,6 +468,23 @@ router.post(
 
     const savedAgentMessageId = agentMessageResult.rows[0].id;
 
+      // Log LLM usage
+      logUsage({
+        userId,
+        actionType: 'llm_request',
+        endpoint: `/api/chat/sessions/${parsedSessionId}/messages`,
+        method: 'POST',
+        statusCode: 200,
+        metadata: {
+          sessionId: parsedSessionId,
+          courseId,
+          messageId: savedAgentMessageId,
+          confidence: agentResponse.confidence,
+          sourcesCount: agentResponse.sources?.length || 0,
+          responseLength: agentResponse.content.length,
+        },
+      });
+
       // Run ENHANCED Integrity Verification Agent in background with proper error handling
       // This will independently verify sources with web crawling and calculate trust score
       logToFile('='.repeat(80));
@@ -852,6 +870,23 @@ router.post('/sessions/:sessionId/regenerate', async (req: Request, res: Respons
     );
 
     const savedAgentMessageId = newAgentMessageResult.rows[0].id;
+
+    // Log LLM usage for regeneration
+    logUsage({
+      userId,
+      actionType: 'llm_request',
+      endpoint: `/api/chat/sessions/${sessionId}/regenerate`,
+      method: 'POST',
+      statusCode: 200,
+      metadata: {
+        sessionId: parseInt(sessionId),
+        courseId,
+        messageId: savedAgentMessageId,
+        regenerated: true,
+        confidence: agentResponse.confidence,
+        sourcesCount: agentResponse.sources?.length || 0,
+      },
+    });
 
     // Run ENHANCED Integrity Verification in background
     const verifier = new EnhancedIntegrityVerificationAgent();

@@ -376,6 +376,38 @@ const createTables = async () => {
       ON agent_generated_content(session_id)
     `);
 
+    // API Usage Logs table - tracks file uploads, LLM requests, and grading requests per user
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS api_usage_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        action_type VARCHAR(50) NOT NULL,
+        endpoint VARCHAR(500) NOT NULL,
+        method VARCHAR(10) NOT NULL,
+        status_code INTEGER,
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT api_usage_logs_action_type_check CHECK (
+          action_type IN ('file_upload', 'llm_request', 'grading_request', 'file_download')
+        )
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_api_usage_logs_user_id
+      ON api_usage_logs(user_id)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_api_usage_logs_action_type
+      ON api_usage_logs(action_type)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_api_usage_logs_created_at
+      ON api_usage_logs(created_at)
+    `);
+
     console.log('Database tables created successfully');
   } catch (error) {
     console.error('Error creating tables:', error);
