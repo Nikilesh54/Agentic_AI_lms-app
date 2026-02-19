@@ -474,7 +474,7 @@ Please provide a comprehensive, helpful answer.`;
       const result = await pool.query(
         `SELECT id, file_name, file_path, file_type, uploaded_at
          FROM course_materials
-         WHERE course_id = $1 AND is_active = true
+         WHERE course_id = $1
          ORDER BY uploaded_at DESC`,
         [courseId]
       );
@@ -700,7 +700,7 @@ Please provide a comprehensive, helpful answer.`;
                 cmc.content_text
          FROM course_materials cm
          LEFT JOIN course_material_content cmc ON cm.id = cmc.material_id
-         WHERE cm.course_id = $1 AND cm.is_active = true
+         WHERE cm.course_id = $1
          ORDER BY cm.uploaded_at DESC
          LIMIT 10`,
         [courseId]
