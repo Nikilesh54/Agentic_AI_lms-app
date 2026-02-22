@@ -122,14 +122,19 @@ export const professorAPI = {
     apiClient.delete(`/professor/announcements/${announcementId}`),
 
   // Course Materials
-  getMaterials: () =>
-    apiClient.get('/professor/materials'),
+  getMaterials: (folderId?: number | null) =>
+    apiClient.get('/professor/materials', {
+      params: folderId !== undefined ? { folderId: folderId === null ? 'null' : folderId } : {}
+    }),
 
-  uploadMaterials: (files: FileList) => {
+  uploadMaterials: (files: FileList, folderId?: number | null) => {
     const formData = new FormData();
     Array.from(files).forEach((file) => {
       formData.append('files', file);
     });
+    if (folderId) {
+      formData.append('folderId', folderId.toString());
+    }
     return apiClient.post('/professor/materials', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -140,6 +145,24 @@ export const professorAPI = {
 
   downloadMaterial: (materialId: number) =>
     apiClient.get(`/professor/materials/${materialId}/download`),
+
+  // Material Folders
+  getFolders: (folderId?: number | null) =>
+    apiClient.get('/professor/folders', {
+      params: folderId ? { folderId } : {}
+    }),
+
+  createFolder: (data: { name: string; parentId?: number | null }) =>
+    apiClient.post('/professor/folders', data),
+
+  renameFolder: (folderId: number, name: string) =>
+    apiClient.put(`/professor/folders/${folderId}`, { name }),
+
+  deleteFolder: (folderId: number) =>
+    apiClient.delete(`/professor/folders/${folderId}`),
+
+  getFolderBreadcrumb: (folderId: number) =>
+    apiClient.get(`/professor/folders/${folderId}/breadcrumb`),
 
   // Assignment Files
   getAssignmentFiles: (assignmentId: number) =>
@@ -193,8 +216,18 @@ export const studentAPI = {
     apiClient.get(`/student/courses/${courseId}/announcements`),
 
   // Course Materials
-  getCourseMaterials: (courseId: number) =>
-    apiClient.get(`/student/courses/${courseId}/materials`),
+  getCourseMaterials: (courseId: number, folderId?: number | null) =>
+    apiClient.get(`/student/courses/${courseId}/materials`, {
+      params: folderId !== undefined ? { folderId: folderId === null ? 'null' : folderId } : {}
+    }),
+
+  getCourseFolders: (courseId: number, folderId?: number | null) =>
+    apiClient.get(`/student/courses/${courseId}/folders`, {
+      params: folderId ? { folderId } : {}
+    }),
+
+  getCourseFolderBreadcrumb: (courseId: number, folderId: number) =>
+    apiClient.get(`/student/courses/${courseId}/folders/${folderId}/breadcrumb`),
 
   downloadMaterial: (materialId: number) =>
     apiClient.get(`/student/materials/${materialId}/download`),

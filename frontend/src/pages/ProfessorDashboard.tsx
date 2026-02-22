@@ -25,16 +25,27 @@ const ProfessorDashboard: React.FC = () => {
   const [newAssignment, setNewAssignment] = useState({ title: '', description: '', questionText: '', dueDate: '', points: 100 });
   const [newAnnouncement, setNewAnnouncement] = useState({ title: '', content: '' });
 
+  // Folder navigation state
+  const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
+  const [folders, setFolders] = useState<any[]>([]);
+  const [breadcrumb, setBreadcrumb] = useState<any[]>([]);
+  const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+
   useEffect(() => {
     loadCourse();
   }, []);
 
   useEffect(() => {
     if (activeTab === 'students') loadStudents();
-    if (activeTab === 'materials') loadMaterials();
     if (activeTab === 'assignments') loadAssignments();
     if (activeTab === 'announcements') loadAnnouncements();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'materials') loadMaterials();
+  }, [activeTab, currentFolderId]);
 
   const loadCourse = async () => {
     try {
@@ -72,8 +83,19 @@ const ProfessorDashboard: React.FC = () => {
   const loadMaterials = async () => {
     try {
       setLoading(true);
-      const response = await professorAPI.getMaterials();
-      setMaterials(response.data.materials);
+      const [materialsRes, foldersRes] = await Promise.all([
+        professorAPI.getMaterials(currentFolderId === null ? null : currentFolderId),
+        professorAPI.getFolders(currentFolderId),
+      ]);
+      setMaterials(materialsRes.data.materials);
+      setFolders(foldersRes.data.folders);
+
+      if (currentFolderId !== null) {
+        const breadcrumbRes = await professorAPI.getFolderBreadcrumb(currentFolderId);
+        setBreadcrumb(breadcrumbRes.data.breadcrumb);
+      } else {
+        setBreadcrumb([]);
+      }
     } catch (error) {
       showToast('Failed to load course materials', 'error');
     } finally {
@@ -149,21 +171,51 @@ const ProfessorDashboard: React.FC = () => {
     const validation = validateByType(files, 'courseMaterials');
     if (!validation.valid) {
       showToast(validation.error || 'Invalid file selection', 'error');
-      e.target.value = ''; // Reset file input
+      e.target.value = '';
       return;
     }
 
     try {
       setUploadingFiles(true);
-      await professorAPI.uploadMaterials(files);
+      await professorAPI.uploadMaterials(files, currentFolderId);
       showToast(`${files.length} file(s) uploaded successfully`, 'success');
       loadMaterials();
-      e.target.value = ''; // Reset file input
+      e.target.value = '';
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Failed to upload materials', 'error');
-      e.target.value = ''; // Reset file input on error too
+      e.target.value = '';
     } finally {
       setUploadingFiles(false);
+    }
+  };
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    try {
+      setCreatingFolder(true);
+      await professorAPI.createFolder({
+        name: newFolderName.trim(),
+        parentId: currentFolderId,
+      });
+      showToast('Folder created successfully', 'success');
+      setNewFolderName('');
+      setShowCreateFolder(false);
+      loadMaterials();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to create folder', 'error');
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const handleDeleteFolder = async (folderId: number) => {
+    if (!confirm('Are you sure? This will delete the folder and ALL its contents (subfolders and files).')) return;
+    try {
+      await professorAPI.deleteFolder(folderId);
+      showToast('Folder deleted successfully', 'success');
+      loadMaterials();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to delete folder', 'error');
     }
   };
 
@@ -309,30 +361,132 @@ const ProfessorDashboard: React.FC = () => {
           <div className="materials-section">
             <div className="section-header">
               <h2>Course Materials</h2>
-              <label htmlFor="file-upload" className="btn-primary" style={{ cursor: 'pointer' }}>
-                {uploadingFiles ? 'Uploading...' : '+ Upload Materials'}
-                <input
-                  id="file-upload"
-                  type="file"
-                  multiple
-                  onChange={handleUploadMaterials}
-                  style={{ display: 'none' }}
-                  disabled={uploadingFiles}
-                />
-              </label>
+              <div className="materials-actions-bar">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setShowCreateFolder(true)}
+                >
+                  + New Folder
+                </button>
+                <label htmlFor="file-upload" className="btn-primary" style={{ cursor: 'pointer' }}>
+                  {uploadingFiles ? 'Uploading...' : '+ Upload Files'}
+                  <input
+                    id="file-upload"
+                    type="file"
+                    multiple
+                    onChange={handleUploadMaterials}
+                    style={{ display: 'none' }}
+                    disabled={uploadingFiles}
+                  />
+                </label>
+              </div>
             </div>
 
-            {materials.length === 0 ? (
-              <p className="empty-message">No course materials uploaded yet</p>
+            {/* Breadcrumb Navigation */}
+            <div className="folder-breadcrumb">
+              <button
+                className={`breadcrumb-item ${currentFolderId === null ? 'active' : ''}`}
+                onClick={() => setCurrentFolderId(null)}
+              >
+                🏠 Home
+              </button>
+              {breadcrumb.map((crumb: any, index: number) => (
+                <React.Fragment key={crumb.id}>
+                  <span className="breadcrumb-separator">/</span>
+                  <button
+                    className={`breadcrumb-item ${index === breadcrumb.length - 1 ? 'active' : ''}`}
+                    onClick={() => setCurrentFolderId(crumb.id)}
+                  >
+                    {crumb.name}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+
+            {/* Create Folder Modal */}
+            {showCreateFolder && (
+              <div className="modal-overlay" onClick={() => setShowCreateFolder(false)}>
+                <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                  <h3>Create New Folder</h3>
+                  <div className="form-group">
+                    <label>Folder Name</label>
+                    <input
+                      type="text"
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      placeholder="Enter folder name..."
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreateFolder();
+                      }}
+                    />
+                  </div>
+                  <div className="modal-actions">
+                    <button
+                      type="button"
+                      onClick={() => { setShowCreateFolder(false); setNewFolderName(''); }}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleCreateFolder}
+                      className="btn-primary"
+                      disabled={creatingFolder || !newFolderName.trim()}
+                    >
+                      {creatingFolder ? 'Creating...' : 'Create'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Folder & File List */}
+            {folders.length === 0 && materials.length === 0 ? (
+              <p className="empty-message">
+                {currentFolderId === null
+                  ? 'No course materials uploaded yet'
+                  : 'This folder is empty'}
+              </p>
             ) : (
               <div className="materials-list">
+                {/* Folders first */}
+                {folders.map((folder: any) => (
+                  <div
+                    key={`folder-${folder.id}`}
+                    className="material-card folder-card"
+                    onClick={() => setCurrentFolderId(folder.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="material-icon folder-icon">&#128193;</div>
+                    <div className="material-info">
+                      <h3>{folder.name}</h3>
+                      <p className="material-meta">
+                        Folder &bull; Created {new Date(folder.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="material-actions">
+                      <button
+                        className="btn-delete-icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteFolder(folder.id);
+                        }}
+                      >
+                        &#10005;
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Files */}
                 {materials.map((material: any) => (
-                  <div key={material.id} className="material-card">
-                    <div className="material-icon">📄</div>
+                  <div key={`file-${material.id}`} className="material-card">
+                    <div className="material-icon">&#128196;</div>
                     <div className="material-info">
                       <h3>{material.file_name}</h3>
                       <p className="material-meta">
-                        {formatFileSize(material.file_size)} •
+                        {formatFileSize(material.file_size)} &bull;
                         Uploaded {new Date(material.uploaded_at).toLocaleDateString()}
                       </p>
                     </div>
@@ -347,7 +501,7 @@ const ProfessorDashboard: React.FC = () => {
                         className="btn-delete-icon"
                         onClick={() => handleDeleteMaterial(material.id)}
                       >
-                        ✕
+                        &#10005;
                       </button>
                     </div>
                   </div>

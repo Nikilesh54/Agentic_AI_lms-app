@@ -494,3 +494,68 @@
   gap: 0.75rem;
   align-items: center;
 }
+
+/* Folder System Styles */
+.materials-actions-bar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.folder-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-white);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+}
+
+.breadcrumb-item {
+  background: none;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--vt-maroon);
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.breadcrumb-item:hover {
+  background: var(--color-bg-light);
+  text-decoration: underline;
+}
+
+.breadcrumb-item.active {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  cursor: default;
+}
+
+.breadcrumb-item.active:hover {
+  background: none;
+  text-decoration: none;
+}
+
+.breadcrumb-separator {
+  color: var(--color-text-light);
+  font-size: 0.875rem;
+  margin: 0 0.125rem;
+}
+
+.folder-card {
+  border-left: 3px solid var(--vt-orange);
+}
+
+.folder-card:hover {
+  border-left-color: var(--vt-maroon);
+}
+
+.folder-icon {
+  font-size: 2.5rem;
+}

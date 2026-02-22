@@ -36,6 +36,12 @@ export async function runMigrations(): Promise<void> {
     await client.query(factCheckMigrationSQL);
     console.log('✓ Fact-Check schema migration completed successfully');
 
+    // Migration 5: Material Folders (hierarchical folder system for course materials)
+    const foldersMigrationPath = path.join(__dirname, 'material-folders-schema.sql');
+    const foldersMigrationSQL = fs.readFileSync(foldersMigrationPath, 'utf8');
+    await client.query(foldersMigrationSQL);
+    console.log('✓ Material Folders schema migration completed successfully');
+
   } catch (error) {
     console.error('Error running migrations:', error);
     throw error;

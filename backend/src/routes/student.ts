@@ -289,10 +289,96 @@ router.get('/courses/:courseId/announcements', async (req, res) => {
 
 // ========== COURSE MATERIALS ENDPOINTS ==========
 
-// Get course materials for an enrolled course
+// Get folders for a course (student view, read-only)
+router.get('/courses/:courseId/folders', async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const folderId = req.query.folderId ? parseInt(req.query.folderId as string) : null;
+
+    // Verify student is enrolled
+    const enrollment = await pool.query(
+      'SELECT id FROM enrollments WHERE user_id = $1 AND course_id = $2',
+      [req.user!.userId, courseId]
+    );
+
+    if (enrollment.rows.length === 0) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    let query: string;
+    let params: any[];
+
+    if (folderId === null) {
+      query = `
+        SELECT mf.id, mf.name, mf.parent_id, mf.created_at
+        FROM material_folders mf
+        WHERE mf.course_id = $1 AND mf.parent_id IS NULL
+        ORDER BY mf.name ASC
+      `;
+      params = [courseId];
+    } else {
+      query = `
+        SELECT mf.id, mf.name, mf.parent_id, mf.created_at
+        FROM material_folders mf
+        WHERE mf.course_id = $1 AND mf.parent_id = $2
+        ORDER BY mf.name ASC
+      `;
+      params = [courseId, folderId];
+    }
+
+    const result = await pool.query(query, params);
+
+    res.json({ folders: result.rows });
+  } catch (error) {
+    console.error('Error fetching folders:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get folder breadcrumb (student view)
+router.get('/courses/:courseId/folders/:id/breadcrumb', async (req, res) => {
+  try {
+    const { courseId, id } = req.params;
+
+    // Verify student is enrolled
+    const enrollment = await pool.query(
+      'SELECT id FROM enrollments WHERE user_id = $1 AND course_id = $2',
+      [req.user!.userId, courseId]
+    );
+
+    if (enrollment.rows.length === 0) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const result = await pool.query(`
+      WITH RECURSIVE folder_path AS (
+        SELECT id, name, parent_id, 1 as depth
+        FROM material_folders
+        WHERE id = $1 AND course_id = $2
+        UNION ALL
+        SELECT mf.id, mf.name, mf.parent_id, fp.depth + 1
+        FROM material_folders mf
+        JOIN folder_path fp ON mf.id = fp.parent_id
+      )
+      SELECT id, name, parent_id FROM folder_path ORDER BY depth DESC
+    `, [id, courseId]);
+
+    res.json({ breadcrumb: result.rows });
+  } catch (error) {
+    console.error('Error fetching breadcrumb:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get course materials for an enrolled course (optionally filtered by folder)
 router.get('/courses/:courseId/materials', async (req, res) => {
   try {
     const { courseId } = req.params;
+    const folderIdParam = req.query.folderId as string | undefined;
+    const hasFolderFilter = folderIdParam !== undefined;
+    const folderId = hasFolderFilter
+      ? (folderIdParam === 'null' || folderIdParam === '' ? null : parseInt(folderIdParam))
+      : undefined;
 
     // Verify student is enrolled in the course
     const enrollment = await pool.query(
@@ -307,15 +393,42 @@ router.get('/courses/:courseId/materials', async (req, res) => {
       });
     }
 
-    // Get materials
-    const result = await pool.query(
-      `SELECT cm.*, u.full_name as uploader_name
-       FROM course_materials cm
-       JOIN users u ON cm.uploaded_by = u.id
-       WHERE cm.course_id = $1
-       ORDER BY cm.uploaded_at DESC`,
-      [courseId]
-    );
+    let query: string;
+    let params: any[];
+
+    if (!hasFolderFilter) {
+      // No filter = all materials (backward compatible)
+      query = `
+        SELECT cm.*, u.full_name as uploader_name
+        FROM course_materials cm
+        JOIN users u ON cm.uploaded_by = u.id
+        WHERE cm.course_id = $1
+        ORDER BY cm.uploaded_at DESC
+      `;
+      params = [courseId];
+    } else if (folderId === null) {
+      // Root folder
+      query = `
+        SELECT cm.*, u.full_name as uploader_name
+        FROM course_materials cm
+        JOIN users u ON cm.uploaded_by = u.id
+        WHERE cm.course_id = $1 AND cm.folder_id IS NULL
+        ORDER BY cm.uploaded_at DESC
+      `;
+      params = [courseId];
+    } else {
+      // Specific folder
+      query = `
+        SELECT cm.*, u.full_name as uploader_name
+        FROM course_materials cm
+        JOIN users u ON cm.uploaded_by = u.id
+        WHERE cm.course_id = $1 AND cm.folder_id = $2
+        ORDER BY cm.uploaded_at DESC
+      `;
+      params = [courseId, folderId];
+    }
+
+    const result = await pool.query(query, params);
 
     res.json({
       message: 'Course materials retrieved successfully',
