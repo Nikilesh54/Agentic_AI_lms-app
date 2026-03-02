@@ -91,10 +91,10 @@ export const AI_SERVICE = {
   LOW_CONFIDENCE_THRESHOLD: 0.5,
 
   /** Maximum retries for API calls */
-  MAX_RETRIES: 3,
+  MAX_RETRIES: 2,
 
   /** Initial retry delay in milliseconds */
-  INITIAL_RETRY_DELAY_MS: 1000,
+  INITIAL_RETRY_DELAY_MS: 2000,
 
   /** Maximum retry delay in milliseconds */
   MAX_RETRY_DELAY_MS: 10000,
