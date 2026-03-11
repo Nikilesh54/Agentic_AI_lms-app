@@ -161,7 +161,7 @@ router.post('/sessions', async (req: Request, res: Response) => {
 
     // Get or create agent based on user role
     const agentType = userRole === 'professor' ? 'instructor_assistant' :
-                      userRole === 'root' ? 'admin_assistant' : 'course_assistant';
+      userRole === 'root' ? 'admin_assistant' : 'course_assistant';
 
     let agentResult = await pool.query(
       'SELECT id FROM chat_agents WHERE agent_type = $1 AND is_active = true LIMIT 1',
@@ -409,36 +409,36 @@ router.post(
         [parsedSessionId, 'student', sanitizedContent]
       );
 
-    // Get recent message history for context
-    const historyResult = await pool.query(
-      `SELECT sender_type, content FROM chat_messages
+      // Get recent message history for context
+      const historyResult = await pool.query(
+        `SELECT sender_type, content FROM chat_messages
        WHERE session_id = $1 AND is_deleted = false
        ORDER BY created_at ASC
        LIMIT 20`,
-      [parsedSessionId]
-    );
+        [parsedSessionId]
+      );
 
-    // Get course details
-    const courseResult = await pool.query(
-      'SELECT id, title, description FROM courses WHERE id = $1',
-      [courseId]
-    );
-    const course = courseResult.rows[0];
+      // Get course details
+      const courseResult = await pool.query(
+        'SELECT id, title, description FROM courses WHERE id = $1',
+        [courseId]
+      );
+      const course = courseResult.rows[0];
 
-    // Build AI context from conversation history
-    const conversationHistory: AIMessage[] = historyResult.rows.map(row => ({
-      role: (row.sender_type === 'student' ? 'user' : 'assistant') as 'user' | 'assistant',
-      content: row.content
-    }));
+      // Build AI context from conversation history
+      const conversationHistory: AIMessage[] = historyResult.rows.map(row => ({
+        role: (row.sender_type === 'student' ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: row.content
+      }));
 
-    const aiContext: AIContext = {
-      conversationHistory,
-      courseMetadata: {
-        id: course.id,
-        title: course.title,
-        description: course.description
-      }
-    };
+      const aiContext: AIContext = {
+        conversationHistory,
+        courseMetadata: {
+          id: course.id,
+          title: course.title,
+          description: course.description
+        }
+      };
 
       // Create agent message for the Subject Chatbot
       const agentMessage: AgentMessage = {
@@ -466,7 +466,7 @@ router.post(
         })]
       );
 
-    const savedAgentMessageId = agentMessageResult.rows[0].id;
+      const savedAgentMessageId = agentMessageResult.rows[0].id;
 
       // Log LLM usage
       logUsage({
@@ -523,24 +523,32 @@ router.post(
             logToFile('Error stack: ' + err.stack);
 
             if (attempt > MAX_RETRIES) {
-              // Store error state in database
+              // Store error state in database using correct schema columns
               try {
                 await pool.query(
                   `INSERT INTO message_trust_scores (
-                    message_id, overall_score, verification_status, verification_metadata
-                  ) VALUES ($1, $2, $3, $4)
+                    message_id, trust_score, trust_level, verification_reasoning,
+                    source_verification_details, conflicts_detected
+                  ) VALUES ($1, $2, $3, $4, $5, $6)
                   ON CONFLICT (message_id) DO UPDATE SET
-                    verification_status = EXCLUDED.verification_status,
-                    verification_metadata = EXCLUDED.verification_metadata`,
+                    trust_score = EXCLUDED.trust_score,
+                    trust_level = EXCLUDED.trust_level,
+                    verification_reasoning = EXCLUDED.verification_reasoning,
+                    source_verification_details = EXCLUDED.source_verification_details,
+                    conflicts_detected = EXCLUDED.conflicts_detected,
+                    verification_timestamp = CURRENT_TIMESTAMP`,
                   [
                     savedAgentMessageId,
                     0,
-                    'error',
+                    'low',
+                    `Verification failed after ${MAX_RETRIES + 1} attempts: ${err.message}`,
                     JSON.stringify({
+                      verification_details: [],
+                      evidence_summary: `Verification error after ${MAX_RETRIES + 1} attempts.`,
                       error: err.message,
-                      timestamp: new Date().toISOString(),
-                      attempts: MAX_RETRIES + 1
-                    })
+                      timestamp: new Date().toISOString()
+                    }),
+                    ['Verification system encountered an error']
                   ]
                 );
                 logToFile('⚠️ Verification failed after retries, error state recorded in database');
@@ -562,12 +570,33 @@ router.post(
         try {
           const factChecker = getGroqFactCheckService();
           if (factChecker.isEnabled()) {
+            // Fetch actual source content to give Groq real evidence for fact-checking
+            let sourceContent: Array<{ fileName: string; content: string }> = [];
+            try {
+              const sourceResult = await pool.query(
+                `SELECT cm.file_name, cmc.content_text
+                 FROM course_material_content cmc
+                 JOIN course_materials cm ON cmc.material_id = cm.id
+                 WHERE cm.course_id = $1 AND cmc.content_text IS NOT NULL
+                 ORDER BY cmc.last_indexed_at DESC
+                 LIMIT 5`,
+                [courseId]
+              );
+              sourceContent = sourceResult.rows.map(row => ({
+                fileName: row.file_name,
+                content: row.content_text.substring(0, 1000) // Limit per source to stay within token limits
+              }));
+            } catch (srcErr: any) {
+              logToFile(`⚠️ Could not fetch source content for fact-check: ${srcErr.message}`);
+            }
+
             await factChecker.factCheck(
               savedAgentMessageId,
               agentResponse.content,
               sanitizedContent,
               conversationHistory,
-              { title: course.title, description: course.description }
+              { title: course.title, description: course.description },
+              sourceContent
             );
           }
         } catch (err: any) {
@@ -581,30 +610,30 @@ router.post(
         [parsedSessionId]
       );
 
-    res.json({
-      message: 'Message sent successfully',
-      studentMessage: studentMessage.rows[0],
-      agentMessage: {
-        ...agentMessageResult.rows[0],
-        sources: agentResponse.sources,
-        confidence: agentResponse.confidence
-      }
-    });
-  } catch (error: any) {
-    console.error('❌ ERROR SENDING MESSAGE:');
-    console.error('Error type:', error.constructor.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    console.error('Full error:', error);
+      res.json({
+        message: 'Message sent successfully',
+        studentMessage: studentMessage.rows[0],
+        agentMessage: {
+          ...agentMessageResult.rows[0],
+          sources: agentResponse.sources,
+          confidence: agentResponse.confidence
+        }
+      });
+    } catch (error: any) {
+      console.error('❌ ERROR SENDING MESSAGE:');
+      console.error('Error type:', error.constructor.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      console.error('Full error:', error);
 
-    // Return more detailed error for debugging
-    const errorMessage = error.message || 'Failed to send message';
-    res.status(500).json({
-      error: 'Failed to send message',
-      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
-    });
-  }
-});
+      // Return more detailed error for debugging
+      const errorMessage = error.message || 'Failed to send message';
+      res.status(500).json({
+        error: 'Failed to send message',
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+      });
+    }
+  });
 
 // Archive a chat session
 router.patch('/sessions/:sessionId/archive', async (req: Request, res: Response) => {

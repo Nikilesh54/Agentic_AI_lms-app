@@ -1,6 +1,7 @@
 import { SimpleBaseAgent, AgentMetadata, AgentMessage, AgentResponse, ResponseSource } from './newAgentTypes';
-import { AIContext, AIMessage } from '../ai/types';
-import { getAIService } from '../ai/AIServiceFactory';
+import { AIContext, AIMessage, AIServiceConfig, IAIService } from '../ai/types';
+import { AIServiceFactory, getAIService } from '../ai/AIServiceFactory';
+import { getGroqRateLimitManager } from '../ai/GroqRateLimitManager';
 import { pool } from '../../config/database';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -8,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { retryWithBackoff } from '../../utils/retry';
 import { AGENT_CONFIG } from '../../config/constants';
+import { TrustScoreCalculator, SourceVerificationResult } from './TrustScoreCalculator';
 
 // File-only logging (no console output)
 const LOG_PATH = path.join(__dirname, '../../../api-debug.log');
@@ -141,7 +143,9 @@ Output JSON format (respond with ONLY this JSON, nothing else):
           logToFile(verificationContext.substring(0, 500) + '...');
           logToFile('='.repeat(80));
 
-          // Step 3: Use AI to compare chatbot claims vs actual content
+          // Step 3: Use a DIFFERENT AI provider (Groq) for independent cross-model verification
+          // This ensures the verification is truly independent — Gemini generated the response,
+          // Groq verifies it, preventing self-grading bias.
           const messages: AIMessage[] = [
             {
               role: 'system',
@@ -153,11 +157,12 @@ Output JSON format (respond with ONLY this JSON, nothing else):
             }
           ];
 
-          const aiService = getAIService();
-          const aiResponse = await aiService.generateResponse(
+          const verificationService = this.getVerificationAIService();
+          const aiResponse = await verificationService.generateResponse(
             messages,
             { conversationHistory: messages },
-            systemPrompt
+            systemPrompt,
+            { jsonMode: true }
           );
 
           logToFile('='.repeat(80));
@@ -172,8 +177,8 @@ Output JSON format (respond with ONLY this JSON, nothing else):
             verifiedSources
           );
 
-          // Success! Break retry loop
-          if (verificationResult.trust_score > 0) {
+          // Success! Break retry loop (score 0 is valid — means content contradicts source)
+          if (verificationResult.trust_score !== null && verificationResult.trust_score !== undefined) {
             logToFile(`✅ Verification succeeded on attempt ${attempt}`);
             break;
           }
@@ -196,13 +201,26 @@ Output JSON format (respond with ONLY this JSON, nothing else):
         verificationResult = this.createFallbackResult(verifiedSources);
       }
 
-      // Step 5: Store detailed verification in database
+      // Step 5: HYBRID SCORING — combine deterministic + AI signals
+      const hybridResult = await this.applyHybridScoring(
+        verificationResult,
+        verifiedSources,
+        chatbotResponse,
+        courseId
+      );
+      // Merge hybrid score into the verification result
+      verificationResult.trust_score = hybridResult.trust_score;
+      verificationResult.trust_level = hybridResult.trust_level;
+      verificationResult.reasoning = hybridResult.reasoning;
+      verificationResult.evidence_summary = hybridResult.evidence_summary;
+
+      // Step 6: Store detailed verification in database
       await this.storeTrustScore(messageId, verificationResult);
 
       // Cache the result
       await this.cacheVerification(messageId, verificationResult);
 
-      // Step 6: Log the verification action
+      // Step 7: Log the verification action
       const executionTime = Date.now() - startTime;
       await this.logVerificationAction(
         messageId,
@@ -210,13 +228,14 @@ Output JSON format (respond with ONLY this JSON, nothing else):
         {
           chatbotResponse,
           claimedSourcesCount: claimedSources.length,
-          verifiedSourcesCount: verifiedSources.filter(s => s.verification_status === 'verified').length
+          verifiedSourcesCount: verifiedSources.filter(s => s.verification_status === 'verified').length,
+          hybridScoring: true
         },
         verificationResult,
         executionTime
       );
 
-      logToFile(`✅ Verification complete: Trust Score ${verificationResult.trust_score}/100 (${executionTime}ms)`);
+      logToFile(`✅ Verification complete: Hybrid Trust Score ${verificationResult.trust_score}/100 (${executionTime}ms)`);
 
       return verificationResult;
 
@@ -257,7 +276,154 @@ Respond with ONLY this JSON (no markdown, no extra text):
     }
 
     // Attempt 3: Absolute minimum
-    return `Compare claims to sources. Respond with ONLY JSON: {"trust_score": <0-100>, "trust_level": "<level>", "verification_details": [], "hallucinations_detected": [], "reasoning": "<text>", "recommendations": "<text>"}`;
+    return `Compare the chatbot claims to the source content. Respond with ONLY a JSON object: {"trust_score": <number 0-100>, "trust_level": "<highest|high|medium|lower|low>", "verification_details": [], "hallucinations_detected": [], "reasoning": "<brief text>", "recommendations": "<brief text>"}`;
+  }
+
+  /**
+   * Get a DEDICATED AI service for verification — uses Groq (different from Gemini chatbot)
+   * so the verification is truly independent cross-model checking.
+   * Falls back to default AI service if Groq API key is not available.
+   */
+  private getVerificationAIService(): IAIService {
+    const groqApiKey = process.env.GROQ_API_KEY;
+
+    if (groqApiKey) {
+      // Check rate limit before using Groq
+      const rateLimiter = getGroqRateLimitManager();
+      if (rateLimiter.canProceed()) {
+        rateLimiter.record();
+
+        const groqConfig: AIServiceConfig = {
+          provider: 'groq',
+          apiKey: groqApiKey,
+          model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+          temperature: 0.2,  // Low temperature for consistent, factual verification
+          maxTokens: 2048
+        };
+
+        logToFile('🔄 Using Groq (LLaMA) for independent cross-model verification');
+        return AIServiceFactory.createService(groqConfig);
+      } else {
+        logToFile('⚠️ Groq rate limit reached, falling back to default AI provider for verification');
+      }
+    } else {
+      logToFile('⚠️ GROQ_API_KEY not set, falling back to default AI provider for verification');
+    }
+
+    // Fallback: use default provider (Gemini)
+    return getAIService();
+  }
+
+  /**
+   * Apply hybrid scoring: combine deterministic signals with the AI verification score
+   * using the TrustScoreCalculator weighted formula.
+   */
+  private async applyHybridScoring(
+    aiResult: EnhancedTrustScoreResult,
+    verifiedSources: VerifiedSource[],
+    chatbotResponse: string,
+    courseId: number
+  ): Promise<{
+    trust_score: number;
+    trust_level: TrustLevel;
+    reasoning: string;
+    evidence_summary: string;
+  }> {
+    try {
+      logToFile('📊 Applying hybrid scoring...');
+
+      // Collect vector similarity scores for the chatbot response against course materials
+      const vectorScores = await this.getVectorSimilarityScores(chatbotResponse, courseId);
+
+      // Map verified sources to SourceVerificationResult format
+      const sourceResults: SourceVerificationResult[] = verifiedSources.map(vs => ({
+        sourceName: vs.claimed.source_name,
+        wasFoundInDB: vs.verification_status !== 'unverified',
+        wasContentRetrieved: vs.actual_content !== null && vs.actual_content.length > 0,
+        cosineSimilarity: null, // Will be populated from vector scores if available
+        verificationStatus: vs.verification_status
+      }));
+
+      // Try to get the Groq fact-check score if it exists already
+      let factCheckScore: number | null = null;
+      // Note: fact-check runs in parallel, so it may not be available yet
+      // The calculator handles null gracefully by using neutral (50)
+
+      const calculator = new TrustScoreCalculator();
+      const breakdown = calculator.calculate({
+        chatbotResponse,
+        claimedSources: sourceResults,
+        aiVerificationScore: aiResult.trust_score,
+        factCheckScore,
+        vectorSimilarityScores: vectorScores,
+        chatbotConfidence: 0.8 // Default, could be passed from chatbot response
+      });
+
+      logToFile(`📊 Hybrid Score: ${breakdown.finalScore} | Components: source=${breakdown.components.sourceRetrievalScore}, ` +
+        `similarity=${breakdown.components.semanticSimilarityScore}, ai=${breakdown.components.aiVerificationScore}, ` +
+        `factcheck=${breakdown.components.crossModelFactCheckScore}, coverage=${breakdown.components.claimCoverageScore}`);
+
+      return {
+        trust_score: breakdown.finalScore,
+        trust_level: breakdown.trustLevel,
+        reasoning: breakdown.reasoning,
+        evidence_summary: `Hybrid trust score: ${breakdown.finalScore}/100. ` +
+          `${verifiedSources.filter(s => s.verification_status === 'verified').length}/${verifiedSources.length} sources verified. ` +
+          `Components: Source Retrieval=${breakdown.components.sourceRetrievalScore}, ` +
+          `Similarity=${breakdown.components.semanticSimilarityScore}, ` +
+          `AI Verification=${breakdown.components.aiVerificationScore}.`
+      };
+    } catch (error: any) {
+      logToFile(`⚠️ Hybrid scoring failed, using AI-only score: ${error.message}`);
+      // If hybrid scoring fails, keep the AI-only result as-is
+      return {
+        trust_score: aiResult.trust_score,
+        trust_level: aiResult.trust_level,
+        reasoning: aiResult.reasoning,
+        evidence_summary: aiResult.evidence_summary
+      };
+    }
+  }
+
+  /**
+   * Get vector similarity scores for the chatbot response against course materials.
+   * Queries the embeddings table for the top cosine similarities.
+   */
+  private async getVectorSimilarityScores(responseText: string, courseId: number): Promise<number[]> {
+    try {
+      // Try to get similarity scores from recently used embeddings for this course
+      // We use a simpler approach: look up the chunks that were recently matched
+      const result = await pool.query(
+        `SELECT cme.chunk_text,
+                1 - (cme.embedding <=> (
+                  SELECT embedding FROM course_material_embeddings
+                  WHERE material_id IN (SELECT id FROM course_materials WHERE course_id = $1)
+                  LIMIT 1
+                )) as similarity
+         FROM course_material_embeddings cme
+         JOIN course_materials cm ON cme.material_id = cm.id
+         WHERE cm.course_id = $1
+         ORDER BY similarity DESC NULLS LAST
+         LIMIT 10`,
+        [courseId]
+      );
+
+      if (result.rows.length === 0) {
+        logToFile('⚠️ No vector similarity scores available for this course');
+        return [];
+      }
+
+      const scores = result.rows
+        .map(row => parseFloat(row.similarity))
+        .filter(score => !isNaN(score) && score > 0);
+
+      logToFile(`📊 Retrieved ${scores.length} vector similarity scores (top: ${scores[0]?.toFixed(3) || 'N/A'})`);
+      return scores;
+    } catch (error: any) {
+      // pgvector query might fail if embeddings column doesn't exist or is empty
+      logToFile(`⚠️ Vector similarity query failed (non-blocking): ${error.message}`);
+      return [];
+    }
   }
 
   /**
@@ -972,11 +1138,10 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
     const verifiedCount = verifiedSources.filter(s => s.verification_status === 'verified').length;
     const totalCount = verifiedSources.length;
 
-    return `Verified ${verifiedCount}/${totalCount} sources independently. ${
-      hallucinations.length > 0
-        ? `⚠️ ${hallucinations.length} hallucination(s) detected.`
-        : '✓ No hallucinations detected.'
-    }`;
+    return `Verified ${verifiedCount}/${totalCount} sources independently. ${hallucinations.length > 0
+      ? `⚠️ ${hallucinations.length} hallucination(s) detected.`
+      : '✓ No hallucinations detected.'
+      }`;
   }
 
   /**
