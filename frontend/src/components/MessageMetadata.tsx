@@ -94,36 +94,50 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
     }
   };
 
-  const fetchTrustScore = async () => {
+  const fetchTrustScore = async (retryCount = 0) => {
+    const MAX_TRUST_RETRIES = 8;
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Initial delay to let verification complete
+      if (retryCount === 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       const response = await chatAPI.getTrustScore(messageId);
       setTrustScore(response.data.trustScore);
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        setTimeout(() => {
-          fetchTrustScore();
-        }, 3000);
-      }
-    } finally {
       setLoadingTrust(false);
+    } catch (error: any) {
+      if (error.response?.status === 404 && retryCount < MAX_TRUST_RETRIES) {
+        // Progressive backoff: 3s, 4s, 5s, 6s, 8s, 10s, 12s, 15s
+        const delay = Math.min(3000 + retryCount * 1000, 15000);
+        setTimeout(() => {
+          fetchTrustScore(retryCount + 1);
+        }, delay);
+      } else {
+        // Max retries reached or non-404 error — stop polling
+        setLoadingTrust(false);
+      }
     }
   };
 
-  const fetchFactCheck = async () => {
+  const fetchFactCheck = async (retryCount = 0) => {
+    const MAX_FACT_CHECK_RETRIES = 8;
     try {
-      // Longer delay — fact-check runs after emotional filter + response delivery
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Longer initial delay — fact-check runs after emotional filter + response delivery
+      if (retryCount === 0) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
       const response = await chatAPI.getFactCheck(messageId);
       setFactCheck(response.data.factCheck);
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        setTimeout(() => {
-          fetchFactCheck();
-        }, 4000);
-      }
-    } finally {
       setLoadingFactCheck(false);
+    } catch (error: any) {
+      if (error.response?.status === 404 && retryCount < MAX_FACT_CHECK_RETRIES) {
+        const delay = Math.min(4000 + retryCount * 1000, 15000);
+        setTimeout(() => {
+          fetchFactCheck(retryCount + 1);
+        }, delay);
+      } else {
+        // Max retries reached or non-404 error — stop polling
+        setLoadingFactCheck(false);
+      }
     }
   };
 
@@ -292,22 +306,22 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
             )}
 
             {trustScore.source_verification_details?.verification_details &&
-             trustScore.source_verification_details.verification_details.length > 0 && (
-              <div className="verification-section">
-                <h5>Source Verification:</h5>
-                {trustScore.source_verification_details.verification_details.map((detail, index) => (
-                  <div key={index} className="verification-detail">
-                    <div className="detail-header">
-                      <strong>{detail.source}</strong>
-                      <span className={`match-badge ${detail.match_quality}`}>
-                        {detail.match_quality}
-                      </span>
+              trustScore.source_verification_details.verification_details.length > 0 && (
+                <div className="verification-section">
+                  <h5>Source Verification:</h5>
+                  {trustScore.source_verification_details.verification_details.map((detail, index) => (
+                    <div key={index} className="verification-detail">
+                      <div className="detail-header">
+                        <strong>{detail.source}</strong>
+                        <span className={`match-badge ${detail.match_quality}`}>
+                          {detail.match_quality}
+                        </span>
+                      </div>
+                      <p className="detail-evidence">{detail.evidence}</p>
                     </div>
-                    <p className="detail-evidence">{detail.evidence}</p>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
 
             <div className="verified-by">
               <small>Verified by: {trustScore.verified_by}</small>
