@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { chatAPI } from '../services/api';
 import type {
   ResponseSource,
@@ -16,6 +16,8 @@ import {
   getEmotionEmoji,
 } from '../types/agenticai';
 import './MessageMetadata.css';
+
+const MAX_POLL_ATTEMPTS = 5;
 
 interface MessageMetadataProps {
   messageId: number;
@@ -36,15 +38,69 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
   const trustDropdownRef = useRef<HTMLDivElement>(null);
   const sourcesDropdownRef = useRef<HTMLDivElement>(null);
   const factCheckDropdownRef = useRef<HTMLDivElement>(null);
+  const cancelledRef = useRef(false);
 
   // Parse emotional filter data from metadata
   const emotionalFilter: EmotionalFilterData | null = metadata?.emotionalFilter || null;
 
+  const fetchSources = useCallback(async () => {
+    try {
+      const response = await chatAPI.getSources(messageId);
+      if (!cancelledRef.current) setSources(response.data.sources || []);
+    } catch (error) {
+      console.error('Error fetching sources:', error);
+      if (!cancelledRef.current) setSources([]);
+    } finally {
+      if (!cancelledRef.current) setLoadingSources(false);
+    }
+  }, [messageId]);
+
+  const fetchTrustScore = useCallback(async (attempt = 0) => {
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (cancelledRef.current) return;
+      const response = await chatAPI.getTrustScore(messageId);
+      if (!cancelledRef.current) setTrustScore(response.data.trustScore);
+    } catch (error: any) {
+      if (error.response?.status === 404 && attempt < MAX_POLL_ATTEMPTS && !cancelledRef.current) {
+        setTimeout(() => {
+          if (!cancelledRef.current) fetchTrustScore(attempt + 1);
+        }, 3000);
+        return; // Don't set loadingTrust to false yet — still polling
+      }
+    } finally {
+      if (!cancelledRef.current) setLoadingTrust(false);
+    }
+  }, [messageId]);
+
+  const fetchFactCheck = useCallback(async (attempt = 0) => {
+    try {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (cancelledRef.current) return;
+      const response = await chatAPI.getFactCheck(messageId);
+      if (!cancelledRef.current) setFactCheck(response.data.factCheck);
+    } catch (error: any) {
+      if (error.response?.status === 404 && attempt < MAX_POLL_ATTEMPTS && !cancelledRef.current) {
+        setTimeout(() => {
+          if (!cancelledRef.current) fetchFactCheck(attempt + 1);
+        }, 4000);
+        return; // Don't set loadingFactCheck to false yet — still polling
+      }
+    } finally {
+      if (!cancelledRef.current) setLoadingFactCheck(false);
+    }
+  }, [messageId]);
+
   useEffect(() => {
+    cancelledRef.current = false;
     fetchSources();
     fetchTrustScore();
     fetchFactCheck();
-  }, [messageId]);
+
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, [messageId, fetchSources, fetchTrustScore, fetchFactCheck]);
 
   // Handle click outside to close dropdowns
   useEffect(() => {

@@ -364,7 +364,7 @@ router.get('/sessions/:sessionId/messages', async (req: Request, res: Response) 
 // Send a message in a chat session (with stricter rate limit for AI calls)
 router.post(
   '/sessions/:sessionId/messages',
-  createRateLimitMiddleware(20, 60000), // 20 AI messages per minute
+  createRateLimitMiddleware(40, 60000), // 40 AI messages per minute (accounts for metadata polling)
   validateChatMessage(),
   async (req: Request, res: Response) => {
     try {

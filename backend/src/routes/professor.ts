@@ -554,6 +554,20 @@ router.post('/materials', uploadCourseMaterials, handleMulterError, async (req: 
 
     const courseId = courseResult.rows[0].course_id;
 
+    // Get optional folder ID from form data
+    const folderId = req.body.folderId ? parseInt(req.body.folderId) : null;
+
+    // If folderId provided, verify it belongs to this course
+    if (folderId) {
+      const folderCheck = await pool.query(
+        'SELECT id FROM material_folders WHERE id = $1 AND course_id = $2',
+        [folderId, courseId]
+      );
+      if (folderCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Target folder not found' });
+      }
+    }
+
     await client.query('BEGIN');
 
     const uploadedMaterials = [];
@@ -568,10 +582,10 @@ router.post('/materials', uploadCourseMaterials, handleMulterError, async (req: 
 
       // Save to database
       const result = await client.query(
-        `INSERT INTO course_materials (course_id, file_name, file_path, file_size, file_type, uploaded_by)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO course_materials (course_id, file_name, file_path, file_size, file_type, uploaded_by, folder_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [courseId, uploadResult.fileName, uploadResult.filePath, uploadResult.fileSize, file.mimetype, req.user!.userId]
+        [courseId, uploadResult.fileName, uploadResult.filePath, uploadResult.fileSize, file.mimetype, req.user!.userId, folderId]
       );
 
       const materialId = result.rows[0].id;
@@ -704,9 +718,16 @@ router.post('/materials', uploadCourseMaterials, handleMulterError, async (req: 
   }
 });
 
-// Get all course materials
+// Get all course materials (optionally filtered by folder)
 router.get('/materials', async (req, res) => {
   try {
+    // folderId param: undefined = all materials (backward compat), 'null'/'' = root only, number = specific folder
+    const folderIdParam = req.query.folderId as string | undefined;
+    const hasFolderFilter = folderIdParam !== undefined;
+    const folderId = hasFolderFilter
+      ? (folderIdParam === 'null' || folderIdParam === '' ? null : parseInt(folderIdParam))
+      : undefined;
+
     // Get professor's course
     const courseResult = await pool.query(
       'SELECT course_id FROM course_instructors WHERE user_id = $1',
@@ -719,15 +740,50 @@ router.get('/materials', async (req, res) => {
 
     const courseId = courseResult.rows[0].course_id;
 
-    // Get materials
-    const result = await pool.query(
-      `SELECT cm.*, u.full_name as uploader_name
-       FROM course_materials cm
-       JOIN users u ON cm.uploaded_by = u.id
-       WHERE cm.course_id = $1
-       ORDER BY cm.uploaded_at DESC`,
-      [courseId]
-    );
+    let query: string;
+    let params: any[];
+
+    if (!hasFolderFilter) {
+      // No folderId param = return ALL materials (backward compatible for chatbot/RAG)
+      query = `
+        SELECT cm.*, u.full_name as uploader_name
+        FROM course_materials cm
+        JOIN users u ON cm.uploaded_by = u.id
+        WHERE cm.course_id = $1
+        ORDER BY cm.uploaded_at DESC
+      `;
+      params = [courseId];
+    } else if (folderId === null) {
+      // Root folder
+      query = `
+        SELECT cm.*, u.full_name as uploader_name
+        FROM course_materials cm
+        JOIN users u ON cm.uploaded_by = u.id
+        WHERE cm.course_id = $1 AND cm.folder_id IS NULL
+        ORDER BY cm.uploaded_at DESC
+      `;
+      params = [courseId];
+    } else {
+      // Specific folder
+      const folderCheck = await pool.query(
+        'SELECT id FROM material_folders WHERE id = $1 AND course_id = $2',
+        [folderId, courseId]
+      );
+      if (folderCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Folder not found' });
+      }
+
+      query = `
+        SELECT cm.*, u.full_name as uploader_name
+        FROM course_materials cm
+        JOIN users u ON cm.uploaded_by = u.id
+        WHERE cm.course_id = $1 AND cm.folder_id = $2
+        ORDER BY cm.uploaded_at DESC
+      `;
+      params = [courseId, folderId];
+    }
+
+    const result = await pool.query(query, params);
 
     res.json({
       message: 'Course materials retrieved successfully',
@@ -834,6 +890,302 @@ router.get('/materials/:id/download', async (req, res) => {
   } catch (error) {
     console.error('Error generating download URL:', error);
     res.status(500).json({ error: 'Failed to generate download URL' });
+  }
+});
+
+// ========== MATERIAL FOLDERS ENDPOINTS ==========
+
+// Get folders for a given parent folder (or root if no folderId)
+router.get('/folders', async (req, res) => {
+  try {
+    const folderId = req.query.folderId ? parseInt(req.query.folderId as string) : null;
+
+    // Get professor's course
+    const courseResult = await pool.query(
+      'SELECT course_id FROM course_instructors WHERE user_id = $1',
+      [req.user!.userId]
+    );
+
+    if (courseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No course assigned' });
+    }
+
+    const courseId = courseResult.rows[0].course_id;
+
+    let query: string;
+    let params: any[];
+
+    if (folderId === null) {
+      query = `
+        SELECT mf.*, u.full_name as creator_name
+        FROM material_folders mf
+        JOIN users u ON mf.created_by = u.id
+        WHERE mf.course_id = $1 AND mf.parent_id IS NULL
+        ORDER BY mf.name ASC
+      `;
+      params = [courseId];
+    } else {
+      // Verify the folder belongs to this course
+      const folderCheck = await pool.query(
+        'SELECT id FROM material_folders WHERE id = $1 AND course_id = $2',
+        [folderId, courseId]
+      );
+      if (folderCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Folder not found' });
+      }
+
+      query = `
+        SELECT mf.*, u.full_name as creator_name
+        FROM material_folders mf
+        JOIN users u ON mf.created_by = u.id
+        WHERE mf.course_id = $1 AND mf.parent_id = $2
+        ORDER BY mf.name ASC
+      `;
+      params = [courseId, folderId];
+    }
+
+    const foldersResult = await pool.query(query, params);
+
+    res.json({
+      message: 'Folders retrieved successfully',
+      folders: foldersResult.rows
+    });
+  } catch (error) {
+    console.error('Error fetching folders:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get folder breadcrumb (ancestors chain from root to current folder)
+router.get('/folders/:id/breadcrumb', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const courseResult = await pool.query(
+      'SELECT course_id FROM course_instructors WHERE user_id = $1',
+      [req.user!.userId]
+    );
+
+    if (courseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No course assigned' });
+    }
+
+    const courseId = courseResult.rows[0].course_id;
+
+    // Use recursive CTE to get full path from root to this folder
+    const result = await pool.query(`
+      WITH RECURSIVE folder_path AS (
+        SELECT id, name, parent_id, 1 as depth
+        FROM material_folders
+        WHERE id = $1 AND course_id = $2
+        UNION ALL
+        SELECT mf.id, mf.name, mf.parent_id, fp.depth + 1
+        FROM material_folders mf
+        JOIN folder_path fp ON mf.id = fp.parent_id
+      )
+      SELECT id, name, parent_id FROM folder_path ORDER BY depth DESC
+    `, [id, courseId]);
+
+    res.json({
+      message: 'Breadcrumb retrieved successfully',
+      breadcrumb: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching breadcrumb:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create a new folder
+router.post('/folders', async (req, res) => {
+  try {
+    const { name, parentId } = req.body;
+
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Folder name is required' });
+    }
+
+    const sanitizedName = name.trim();
+    if (sanitizedName.length > 255 || /[<>:"/\\|?*]/.test(sanitizedName)) {
+      return res.status(400).json({
+        error: 'Invalid folder name. Avoid special characters: < > : " / \\ | ? *'
+      });
+    }
+
+    const courseResult = await pool.query(
+      'SELECT course_id FROM course_instructors WHERE user_id = $1',
+      [req.user!.userId]
+    );
+
+    if (courseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No course assigned' });
+    }
+
+    const courseId = courseResult.rows[0].course_id;
+
+    // If parentId is provided, verify it belongs to this course
+    if (parentId) {
+      const parentCheck = await pool.query(
+        'SELECT id FROM material_folders WHERE id = $1 AND course_id = $2',
+        [parentId, courseId]
+      );
+      if (parentCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Parent folder not found' });
+      }
+    }
+
+    const result = await pool.query(
+      `INSERT INTO material_folders (course_id, parent_id, name, created_by)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [courseId, parentId || null, sanitizedName, req.user!.userId]
+    );
+
+    res.status(201).json({
+      message: 'Folder created successfully',
+      folder: result.rows[0]
+    });
+  } catch (error: any) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'A folder with this name already exists in this location' });
+    }
+    console.error('Error creating folder:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Rename a folder
+router.put('/folders/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Folder name is required' });
+    }
+
+    const sanitizedName = name.trim();
+    if (sanitizedName.length > 255 || /[<>:"/\\|?*]/.test(sanitizedName)) {
+      return res.status(400).json({ error: 'Invalid folder name' });
+    }
+
+    const courseResult = await pool.query(
+      'SELECT course_id FROM course_instructors WHERE user_id = $1',
+      [req.user!.userId]
+    );
+
+    if (courseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No course assigned' });
+    }
+
+    const courseId = courseResult.rows[0].course_id;
+
+    const result = await pool.query(
+      `UPDATE material_folders
+       SET name = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND course_id = $3
+       RETURNING *`,
+      [sanitizedName, id, courseId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    res.json({
+      message: 'Folder renamed successfully',
+      folder: result.rows[0]
+    });
+  } catch (error: any) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'A folder with this name already exists in this location' });
+    }
+    console.error('Error renaming folder:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete a folder and all its contents (cascade)
+router.delete('/folders/:id', async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { id } = req.params;
+
+    const courseResult = await pool.query(
+      'SELECT course_id FROM course_instructors WHERE user_id = $1',
+      [req.user!.userId]
+    );
+
+    if (courseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No course assigned' });
+    }
+
+    const courseId = courseResult.rows[0].course_id;
+
+    // Verify folder belongs to this course
+    const folderCheck = await pool.query(
+      'SELECT id FROM material_folders WHERE id = $1 AND course_id = $2',
+      [id, courseId]
+    );
+
+    if (folderCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    await client.query('BEGIN');
+
+    // 1. Get ALL files in this folder and all descendant folders (recursive CTE)
+    const filesResult = await client.query(`
+      WITH RECURSIVE descendant_folders AS (
+        SELECT id FROM material_folders WHERE id = $1
+        UNION ALL
+        SELECT mf.id
+        FROM material_folders mf
+        JOIN descendant_folders df ON mf.parent_id = df.id
+      )
+      SELECT cm.id, cm.file_path
+      FROM course_materials cm
+      WHERE cm.folder_id IN (SELECT id FROM descendant_folders)
+    `, [id]);
+
+    // 2. Delete files from GCS
+    for (const file of filesResult.rows) {
+      try {
+        await deleteFile(file.file_path);
+      } catch (gcsError) {
+        console.error(`Failed to delete GCS file ${file.file_path}:`, gcsError);
+      }
+    }
+
+    // 3. Delete all files in this folder tree from DB
+    await client.query(`
+      WITH RECURSIVE descendant_folders AS (
+        SELECT id FROM material_folders WHERE id = $1
+        UNION ALL
+        SELECT mf.id
+        FROM material_folders mf
+        JOIN descendant_folders df ON mf.parent_id = df.id
+      )
+      DELETE FROM course_materials
+      WHERE folder_id IN (SELECT id FROM descendant_folders)
+    `, [id]);
+
+    // 4. Delete the folder (CASCADE on parent_id FK handles subfolders)
+    await client.query('DELETE FROM material_folders WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+
+    res.json({
+      message: 'Folder and all contents deleted successfully',
+      deletedFiles: filesResult.rows.length
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting folder:', error);
+    res.status(500).json({ error: 'Failed to delete folder' });
+  } finally {
+    client.release();
   }
 });
 

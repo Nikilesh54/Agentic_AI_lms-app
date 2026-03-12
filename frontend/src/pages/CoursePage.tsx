@@ -17,6 +17,11 @@ const CoursePage: React.FC = () => {
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [materials, setMaterials] = useState<any[]>([]);
 
+  // Folder navigation state
+  const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
+  const [folders, setFolders] = useState<any[]>([]);
+  const [breadcrumb, setBreadcrumb] = useState<any[]>([]);
+
   useEffect(() => {
     if (id) {
       loadCourseData();
@@ -27,7 +32,7 @@ const CoursePage: React.FC = () => {
     if (id && activeTab === 'materials') {
       loadMaterials();
     }
-  }, [activeTab, id]);
+  }, [activeTab, id, currentFolderId]);
 
   const loadCourseData = async () => {
     try {
@@ -53,8 +58,20 @@ const CoursePage: React.FC = () => {
   const loadMaterials = async () => {
     try {
       setLoading(true);
-      const response = await studentAPI.getCourseMaterials(parseInt(id!));
-      setMaterials(response.data.materials || []);
+      const courseId = parseInt(id!);
+      const [materialsRes, foldersRes] = await Promise.all([
+        studentAPI.getCourseMaterials(courseId, currentFolderId === null ? null : currentFolderId),
+        studentAPI.getCourseFolders(courseId, currentFolderId),
+      ]);
+      setMaterials(materialsRes.data.materials || []);
+      setFolders(foldersRes.data.folders || []);
+
+      if (currentFolderId !== null) {
+        const breadcrumbRes = await studentAPI.getCourseFolderBreadcrumb(courseId, currentFolderId);
+        setBreadcrumb(breadcrumbRes.data.breadcrumb || []);
+      } else {
+        setBreadcrumb([]);
+      }
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Failed to load course materials', 'error');
     } finally {
@@ -183,19 +200,64 @@ const CoursePage: React.FC = () => {
         return (
           <div className="materials-content">
             <h2>Course Materials</h2>
+
+            {/* Breadcrumb Navigation */}
+            <div className="folder-breadcrumb">
+              <button
+                className={`breadcrumb-item ${currentFolderId === null ? 'active' : ''}`}
+                onClick={() => setCurrentFolderId(null)}
+              >
+                🏠 Home
+              </button>
+              {breadcrumb.map((crumb: any, index: number) => (
+                <React.Fragment key={crumb.id}>
+                  <span className="breadcrumb-separator">/</span>
+                  <button
+                    className={`breadcrumb-item ${index === breadcrumb.length - 1 ? 'active' : ''}`}
+                    onClick={() => setCurrentFolderId(crumb.id)}
+                  >
+                    {crumb.name}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+
             {loading ? (
               <p>Loading materials...</p>
-            ) : materials.length === 0 ? (
-              <p className="empty-message">No course materials available yet</p>
+            ) : folders.length === 0 && materials.length === 0 ? (
+              <p className="empty-message">
+                {currentFolderId === null
+                  ? 'No course materials available yet'
+                  : 'This folder is empty'}
+              </p>
             ) : (
               <div className="materials-list">
+                {/* Folders first */}
+                {folders.map((folder: any) => (
+                  <div
+                    key={`folder-${folder.id}`}
+                    className="material-card folder-card"
+                    onClick={() => setCurrentFolderId(folder.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="material-icon folder-icon">&#128193;</div>
+                    <div className="material-info">
+                      <h3>{folder.name}</h3>
+                      <p className="material-meta">
+                        Folder &bull; Created {new Date(folder.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Files */}
                 {materials.map((material: any) => (
-                  <div key={material.id} className="material-card">
-                    <div className="material-icon">📄</div>
+                  <div key={`file-${material.id}`} className="material-card">
+                    <div className="material-icon">&#128196;</div>
                     <div className="material-info">
                       <h3>{material.file_name}</h3>
                       <p className="material-meta">
-                        {formatFileSize(material.file_size)} •
+                        {formatFileSize(material.file_size)} &bull;
                         Uploaded {new Date(material.uploaded_at).toLocaleDateString()}
                       </p>
                     </div>
