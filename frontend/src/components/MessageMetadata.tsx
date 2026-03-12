@@ -138,65 +138,6 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
     };
   }, [showDetails, showSources, showFactCheck]);
 
-  const fetchSources = async () => {
-    try {
-      const response = await chatAPI.getSources(messageId);
-      setSources(response.data.sources || []);
-    } catch (error) {
-      console.error('Error fetching sources:', error);
-      setSources([]);
-    } finally {
-      setLoadingSources(false);
-    }
-  };
-
-  const fetchTrustScore = async (retryCount = 0) => {
-    const MAX_TRUST_RETRIES = 8;
-    try {
-      // Initial delay to let verification complete
-      if (retryCount === 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-      const response = await chatAPI.getTrustScore(messageId);
-      setTrustScore(response.data.trustScore);
-      setLoadingTrust(false);
-    } catch (error: any) {
-      if (error.response?.status === 404 && retryCount < MAX_TRUST_RETRIES) {
-        // Progressive backoff: 3s, 4s, 5s, 6s, 8s, 10s, 12s, 15s
-        const delay = Math.min(3000 + retryCount * 1000, 15000);
-        setTimeout(() => {
-          fetchTrustScore(retryCount + 1);
-        }, delay);
-      } else {
-        // Max retries reached or non-404 error — stop polling
-        setLoadingTrust(false);
-      }
-    }
-  };
-
-  const fetchFactCheck = async (retryCount = 0) => {
-    const MAX_FACT_CHECK_RETRIES = 8;
-    try {
-      // Longer initial delay — fact-check runs after emotional filter + response delivery
-      if (retryCount === 0) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      }
-      const response = await chatAPI.getFactCheck(messageId);
-      setFactCheck(response.data.factCheck);
-      setLoadingFactCheck(false);
-    } catch (error: any) {
-      if (error.response?.status === 404 && retryCount < MAX_FACT_CHECK_RETRIES) {
-        const delay = Math.min(4000 + retryCount * 1000, 15000);
-        setTimeout(() => {
-          fetchFactCheck(retryCount + 1);
-        }, delay);
-      } else {
-        // Max retries reached or non-404 error — stop polling
-        setLoadingFactCheck(false);
-      }
-    }
-  };
-
   const sourcesCount = metadata?.sourcesCount || sources.length;
 
   return (
