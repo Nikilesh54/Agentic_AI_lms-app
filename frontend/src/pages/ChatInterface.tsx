@@ -40,6 +40,7 @@ const ChatInterface: React.FC = () => {
   const [saveContentType, setSaveContentType] = useState('notes');
   const [saveContentTitle, setSaveContentTitle] = useState('');
   const [saving, setSaving] = useState(false);
+  const [responseMode, setResponseMode] = useState<'strict' | 'creative'>('strict');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -98,7 +99,7 @@ const ChatInterface: React.FC = () => {
     setAgentStatus('thinking');
 
     try {
-      const response = await chatAPI.sendMessage(parseInt(sessionId), messageContent);
+      const response = await chatAPI.sendMessage(parseInt(sessionId), messageContent, responseMode);
 
       // Add both messages to the list
       setMessages(prev => [
@@ -313,6 +314,19 @@ const ChatInterface: React.FC = () => {
               style={{ backgroundColor: getAgentStatusColor() }}
             ></span>
             <span className="status-text">{getAgentStatusText()}</span>
+          </div>
+          <div className="response-mode-toggle">
+            <span className={`mode-label ${responseMode === 'strict' ? 'active' : ''}`}>Strict</span>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={responseMode === 'creative'}
+                onChange={(e) => setResponseMode(e.target.checked ? 'creative' : 'strict')}
+                aria-label="Toggle between strict and creative response mode"
+              />
+              <span className="toggle-slider"></span>
+            </label>
+            <span className={`mode-label ${responseMode === 'creative' ? 'active' : ''}`}>Creative</span>
           </div>
           <div className="header-actions">
             <button className="action-button" title="Clear conversation" onClick={handleArchiveSession}>

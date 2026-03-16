@@ -67,6 +67,7 @@ export interface AIContext {
   instructorPreferences?: any;
   toolResults?: ToolResult[];
   webSearchResults?: any[];
+  responseMode?: 'strict' | 'creative';
 }
 
 export interface Intent {

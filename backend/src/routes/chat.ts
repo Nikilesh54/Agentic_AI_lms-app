@@ -381,7 +381,7 @@ router.post(
       }
 
       const { sessionId } = req.params;
-      const { sanitizedContent } = req.body;  // Use sanitized content from validation middleware
+      const { sanitizedContent, responseMode } = req.body;  // Use sanitized content from validation middleware
 
       // Validate session ID
       const parsedSessionId = parseInt(sessionId, 10);
@@ -431,13 +431,17 @@ router.post(
       content: row.content
     }));
 
+    // Validate responseMode (default to 'strict' if not provided or invalid)
+    const validMode = responseMode === 'creative' ? 'creative' : 'strict';
+
     const aiContext: AIContext = {
       conversationHistory,
       courseMetadata: {
         id: course.id,
         title: course.title,
         description: course.description
-      }
+      },
+      responseMode: validMode
     };
 
       // Create agent message for the Subject Chatbot
@@ -462,6 +466,7 @@ router.post(
         [parsedSessionId, 'agent', agentResponse.content, JSON.stringify({
           confidence: agentResponse.confidence,
           sourcesCount: agentResponse.sources?.length || 0,
+          responseMode: validMode,
           emotionalFilter: agentResponse.metadata?.emotionalFilter || null
         })]
       );

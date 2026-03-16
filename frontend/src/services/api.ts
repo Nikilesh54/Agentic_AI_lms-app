@@ -277,8 +277,8 @@ export const chatAPI = {
     apiClient.get(`/chat/sessions/${sessionId}/messages`, { params }),
 
   // Send a message
-  sendMessage: (sessionId: number, content: string) =>
-    apiClient.post(`/chat/sessions/${sessionId}/messages`, { content }),
+  sendMessage: (sessionId: number, content: string, responseMode: 'strict' | 'creative' = 'strict') =>
+    apiClient.post(`/chat/sessions/${sessionId}/messages`, { content, responseMode }),
 
   // Archive a session
   archiveSession: (sessionId: number) =>

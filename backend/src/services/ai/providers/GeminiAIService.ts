@@ -11,7 +11,7 @@ import {
 } from '../types';
 import { retryWithBackoff } from '../../../utils/retry';
 import { AIRateLimiter } from '../../../utils/rateLimiter';
-import { AI_SERVICE } from '../../../config/constants';
+import { AI_SERVICE, CREATIVE_MODE } from '../../../config/constants';
 
 /**
  * Google AI (Gemini) Service Implementation
@@ -176,11 +176,11 @@ export class GeminiAIService implements IAIService {
    * Gemini's implicit caching works best when the system prompt is set via
    * systemInstruction and stays identical across requests for the same course.
    */
-  private getModelWithSystemInstruction(systemPrompt: string, useGrounding?: boolean): GenerativeModel {
+  private getModelWithSystemInstruction(systemPrompt: string, useGrounding?: boolean, temperature?: number): GenerativeModel {
     return this.genAI.getGenerativeModel({
       model: this.config.model || 'gemini-2.5-flash',
       generationConfig: {
-        temperature: this.config.temperature || 0.7,
+        temperature: temperature ?? this.config.temperature ?? 0.7,
         maxOutputTokens: this.config.maxTokens || 2048,
       },
       systemInstruction: useGrounding
@@ -237,9 +237,14 @@ export class GeminiAIService implements IAIService {
       // Check if we should use Google Search grounding
       const useGrounding = context.webSearchResults && context.webSearchResults.length > 0;
 
+      // Determine temperature based on response mode
+      const modeTemperature = context.responseMode === 'creative'
+        ? CREATIVE_MODE.TEMPERATURE
+        : CREATIVE_MODE.STRICT_TEMPERATURE;
+
       // OPTIMIZATION: Use systemInstruction for static prompt (enables implicit caching)
       const modelToUse = staticSystemPrompt
-        ? this.getModelWithSystemInstruction(staticSystemPrompt, useGrounding)
+        ? this.getModelWithSystemInstruction(staticSystemPrompt, useGrounding, modeTemperature)
         : (useGrounding ? this.getModelWithGrounding() : this.model);
 
       if (useGrounding) {

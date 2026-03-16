@@ -104,6 +104,17 @@ export const AI_SERVICE = {
 } as const;
 
 // =====================================================
+// CREATIVE MODE CONFIGURATION
+// =====================================================
+export const CREATIVE_MODE = {
+  /** Temperature for creative responses (higher = more creative) */
+  TEMPERATURE: 0.7,
+
+  /** Temperature for strict responses (lower = more factual) */
+  STRICT_TEMPERATURE: 0.3,
+} as const;
+
+// =====================================================
 // PAGINATION CONFIGURATION
 // =====================================================
 export const PAGINATION = {

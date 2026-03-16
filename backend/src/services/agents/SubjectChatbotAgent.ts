@@ -4,7 +4,7 @@ import { getAIService } from '../ai/AIServiceFactory';
 import { pool } from '../../config/database';
 import { WebSearchService } from '../search/WebSearchService';
 import { searchCourseMaterials as vectorSearchCourseMaterials, getCourseMaterialStats } from '../vectorSearch';
-import { AGENT_CONFIG, VECTOR_SEARCH, EMOTIONAL_FILTER_CONFIG } from '../../config/constants';
+import { AGENT_CONFIG, VECTOR_SEARCH, EMOTIONAL_FILTER_CONFIG, CREATIVE_MODE } from '../../config/constants';
 import { getEmotionalFilterService, EmotionalFilterResult } from '../emotional/EmotionalFilterService';
 import { downloadFile } from '../../config/storage';
 import { extractTextFromFile } from '../documentProcessor';
@@ -128,6 +128,46 @@ Note: For the most current and region-specific information, I recommend checking
 Would you like me to help you understand what skills and certifications can help maximize your earning potential as a Cloud Engineer?"`;
   }
 
+  private getCreativeSystemPrompt(): string {
+    return `You are a Subject-Specific Chatbot designed to help students learn course material. You are currently in CREATIVE MODE.
+
+Your responsibilities:
+1. Answer student questions using a combination of course materials AND your general knowledge
+2. Feel free to elaborate, explain concepts in depth, and fill knowledge gaps using your training
+3. Provide clear, educational explanations that promote learning
+4. Generate practice questions and quizzes when requested
+5. Help students understand concepts without giving direct answers to homework
+6. When course materials are available and relevant, reference them — but you are NOT limited to them
+
+SOURCE HANDLING IN CREATIVE MODE:
+- **Course materials** are your primary reference when available — cite them when you use them
+- **Your general knowledge** can be freely used to supplement, explain, or go beyond course materials
+- Be transparent about what comes from course materials vs your own knowledge
+- You do NOT need to cite a source for every single statement
+
+ATTRIBUTION FORMAT:
+**For Course Materials (when used):**
+- Format: "[Source: {file_name}, Section {section}, Page {page}]"
+
+**For Your Own Knowledge:**
+- No citation required for general explanations
+- For specific claims, you may note: "[Source: AI Knowledge]"
+
+CRITICAL RULES:
+- You CAN and SHOULD use your general knowledge to provide comprehensive answers
+- Prioritize course materials when they are directly relevant
+- Be helpful, thorough, and educational
+- Do NOT give direct answers to homework or assignment questions
+- Focus on guiding students to understand concepts
+- Be creative in your explanations — use analogies, examples, and different perspectives
+
+RESPONSE FORMAT:
+1. Provide a comprehensive, helpful answer
+2. Reference course materials where applicable
+3. Supplement with your own knowledge freely
+4. Include examples, analogies, or practice questions when helpful`;
+  }
+
   /**
    * Process a student question and generate response with sources
    */
@@ -173,11 +213,17 @@ Would you like me to help you understand what skills and certifications can help
         webSearchResults: webSearchResults.length > 0 ? webSearchResults : undefined
       };
 
+      // Select system prompt based on response mode
+      const isCreativeMode = context.responseMode === 'creative';
+      const activeSystemPrompt = isCreativeMode
+        ? this.getCreativeSystemPrompt()
+        : (this.metadata.systemPrompt || '');
+
       // Build conversation history
       const messages: AIMessage[] = [
         {
           role: 'system',
-          content: this.metadata.systemPrompt || ''
+          content: activeSystemPrompt
         },
         ...context.conversationHistory,
         {
@@ -209,7 +255,7 @@ Please provide a comprehensive, helpful answer.`;
       const aiResponse: AIResponse = await aiService.generateResponse(
         messages,
         enhancedContext,
-        this.metadata.systemPrompt
+        activeSystemPrompt
       );
 
       // Apply emotional filter to adjust response tone based on student's emotional state
@@ -258,7 +304,7 @@ Please provide a comprehensive, helpful answer.`;
         message.userId,
         courseId,
         message.sessionId || null,
-        { question: message.content, webSearchUsed: shouldSearchWeb },
+        { question: message.content, webSearchUsed: shouldSearchWeb, responseMode: context.responseMode || 'strict' },
         {
           answer: finalContent,
           sourcesCount: sources.length,
@@ -279,6 +325,7 @@ Please provide a comprehensive, helpful answer.`;
           materialsSearched: relevantMaterials.length,
           webSearchUsed: shouldSearchWeb,
           webResultsFound: webSearchResults.length,
+          responseMode: context.responseMode || 'strict',
           emotionalFilter: emotionalFilterResult ? {
             applied: emotionalFilterResult.wasAdjusted,
             detectedEmotion: emotionalFilterResult.emotionalContext.currentState.primary,
