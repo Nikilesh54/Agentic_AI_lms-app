@@ -3,7 +3,7 @@ import mammoth from 'mammoth';
 import { OfficeParser } from 'officeparser';
 import * as XLSX from 'xlsx';
 import * as CFB from 'cfb';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { Groq } from 'groq-sdk';
 import { DOCUMENT_PROCESSING } from '../config/constants';
 
 /**
@@ -439,25 +439,23 @@ async function extractFromExcel(fileBuffer: Buffer): Promise<ProcessedDocument> 
  */
 async function extractFromImage(fileBuffer: Buffer, mimeType: string): Promise<ProcessedDocument> {
   try {
-    const apiKey = process.env.GOOGLE_AI_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY || process.env.AI_API_KEY;
     if (!apiKey) {
-      throw new Error('GOOGLE_AI_API_KEY environment variable is not set');
+      throw new Error('GROQ_API_KEY environment variable is not set');
     }
 
     const base64Data = fileBuffer.toString('base64');
+    const groq = new Groq({ apiKey });
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
-
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          mimeType: mimeType,
-          data: base64Data,
-        },
-      },
-      {
-        text: `Extract ALL text visible in this image. Include:
+    const result = await groq.chat.completions.create({
+      model: 'llama-3.2-11b-vision-preview',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Extract ALL text visible in this image. Include:
 - All printed or typed text
 - All handwritten text (if any)
 - Text in tables, charts, or diagrams
@@ -465,12 +463,20 @@ async function extractFromImage(fileBuffer: Buffer, mimeType: string): Promise<P
 
 Return ONLY the extracted text, preserving the original structure and formatting as much as possible.
 If the image contains a table, format it with pipe (|) delimiters.
-If there is no readable text in the image, respond with exactly: "NO_TEXT_FOUND"`,
-      },
-    ]);
+If there is no readable text in the image, respond with exactly: "NO_TEXT_FOUND"`
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:${mimeType};base64,${base64Data}`
+              }
+            }
+          ]
+        }
+      ]
+    });
 
-    const response = result.response;
-    let content_text = response.text().trim();
+    let content_text = result.choices[0]?.message?.content?.trim() || '';
 
     if (content_text === 'NO_TEXT_FOUND' || content_text.length === 0) {
       return {

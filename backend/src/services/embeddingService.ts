@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { pipeline, FeatureExtractionPipeline } from '@xenova/transformers';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
@@ -12,21 +12,21 @@ function logToFile(message: string) {
   fs.appendFileSync(LOG_PATH, `[${timestamp}] ${message}\n`);
 }
 
-// Initialize Google AI client lazily to ensure env vars are loaded
-let genAI: GoogleGenerativeAI | null = null;
+// Global pipeline instance
+let embeddingPipeline: FeatureExtractionPipeline | null = null;
 
-function getGenAI(): GoogleGenerativeAI {
-  if (!genAI) {
-    if (!process.env.GOOGLE_AI_API_KEY) {
-      throw new Error('GOOGLE_AI_API_KEY environment variable is not set. Please check your .env file.');
-    }
-    genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+async function getPipeline(): Promise<FeatureExtractionPipeline> {
+  if (!embeddingPipeline) {
+    logToFile("Initializing Xenova local embedding model: Xenova/bge-base-en-v1.5");
+    embeddingPipeline = await pipeline('feature-extraction', 'Xenova/bge-base-en-v1.5', {
+      quantized: true,
+    });
   }
-  return genAI;
+  return embeddingPipeline;
 }
 
 /**
- * Generate embedding for a single text using Google's text-embedding-004 model
+ * Generate embedding for a single text using Xenova's bge-base-en-v1.5 model (768d)
  * @param text - The text to generate embedding for
  * @returns Array of 768 floats representing the embedding
  */
@@ -36,16 +36,13 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       throw new Error('Text cannot be empty');
     }
 
-    // Use Google's text-embedding-005 model (768 dimensions)
-    const model = getGenAI().getGenerativeModel({ model: 'text-embedding-005' });
+    const generator = await getPipeline();
+    const result = await generator(text, {
+      pooling: 'mean',
+      normalize: true
+    });
 
-    const result = await model.embedContent(text);
-
-    if (!result.embedding || !result.embedding.values) {
-      throw new Error('Failed to generate embedding: No embedding values returned');
-    }
-
-    return result.embedding.values;
+    return Array.from(result.data) as number[];
   } catch (error) {
     console.error('Error generating embedding:', error);
     throw new Error(`Embedding generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -55,7 +52,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 /**
  * Generate embeddings for multiple texts in batch
  * @param texts - Array of texts to generate embeddings for
- * @param batchSize - Number of texts to process in parallel (default: 5 to avoid rate limits)
+ * @param batchSize - Number of texts to process in parallel
  * @returns Array of embeddings (each embedding is an array of 768 floats)
  */
 export async function generateEmbeddings(
@@ -69,7 +66,7 @@ export async function generateEmbeddings(
   const embeddings: number[][] = [];
   const totalBatches = Math.ceil(texts.length / batchSize);
 
-  logToFile(`Generating embeddings for ${texts.length} texts in ${totalBatches} batches...`);
+  logToFile(`Generating local embeddings for ${texts.length} texts in ${totalBatches} batches...`);
 
   for (let i = 0; i < texts.length; i += batchSize) {
     const batch = texts.slice(i, i + batchSize);
@@ -84,11 +81,6 @@ export async function generateEmbeddings(
       );
 
       embeddings.push(...batchEmbeddings);
-
-      // Add small delay between batches to respect rate limits
-      if (i + batchSize < texts.length) {
-        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
-      }
     } catch (error) {
       console.error(`Error processing batch ${batchNumber}:`, error);
       throw error;

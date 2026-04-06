@@ -296,7 +296,7 @@ Respond with ONLY this JSON (no markdown, no extra text):
         const groqConfig: AIServiceConfig = {
           provider: 'groq',
           apiKey: groqApiKey,
-          model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+          model: process.env.GROQ_EVAL_MODEL || process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
           temperature: 0.2,  // Low temperature for consistent, factual verification
           maxTokens: 2048
         };
@@ -359,19 +359,17 @@ Respond with ONLY this JSON (no markdown, no extra text):
         chatbotConfidence: 0.8 // Default, could be passed from chatbot response
       });
 
-      logToFile(`📊 Hybrid Score: ${breakdown.finalScore} | Components: source=${breakdown.components.sourceRetrievalScore}, ` +
+      logToFile(`📊 Hybrid Score: ${breakdown.finalScore} | Components: ` +
         `similarity=${breakdown.components.semanticSimilarityScore}, ai=${breakdown.components.aiVerificationScore}, ` +
-        `factcheck=${breakdown.components.crossModelFactCheckScore}, coverage=${breakdown.components.claimCoverageScore}`);
+        `factcheck=${breakdown.components.crossModelFactCheckScore}`);
 
       return {
         trust_score: breakdown.finalScore,
         trust_level: breakdown.trustLevel,
         reasoning: breakdown.reasoning,
         evidence_summary: `Hybrid trust score: ${breakdown.finalScore}/100. ` +
-          `${verifiedSources.filter(s => s.verification_status === 'verified').length}/${verifiedSources.length} sources verified. ` +
-          `Components: Source Retrieval=${breakdown.components.sourceRetrievalScore}, ` +
-          `Similarity=${breakdown.components.semanticSimilarityScore}, ` +
-          `AI Verification=${breakdown.components.aiVerificationScore}.`
+          `Components: Similarity=${breakdown.components.semanticSimilarityScore}, ` +
+          `AI Fact Check Verification=${breakdown.components.aiVerificationScore}.`
       };
     } catch (error: any) {
       logToFile(`⚠️ Hybrid scoring failed, using AI-only score: ${error.message}`);

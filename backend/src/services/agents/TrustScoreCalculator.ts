@@ -51,20 +51,16 @@ export interface TrustScoreBreakdown {
 
     /** Individual component scores */
     components: {
-        sourceRetrievalScore: number;      // 0-100: % of sources found in DB
         semanticSimilarityScore: number;   // 0-100: avg cosine similarity * 100
         aiVerificationScore: number;       // 0-100: from AI comparison
         crossModelFactCheckScore: number;  // 0-100: from Groq fact-check
-        claimCoverageScore: number;        // 0-100: % of claims with supporting sources
     };
 
     /** Weights applied to each component */
     weights: {
-        sourceRetrieval: number;
         semanticSimilarity: number;
         aiVerification: number;
         crossModelFactCheck: number;
-        claimCoverage: number;
     };
 
     /** Human-readable reasoning */
@@ -93,11 +89,9 @@ export class TrustScoreCalculator {
 
     // Default weights — can be adjusted via constructor
     private weights = {
-        sourceRetrieval: 0.30,
-        semanticSimilarity: 0.25,
+        semanticSimilarity: 0.40,
         aiVerification: 0.20,
-        crossModelFactCheck: 0.15,
-        claimCoverage: 0.10
+        crossModelFactCheck: 0.40
     };
 
     constructor(customWeights?: Partial<typeof TrustScoreCalculator.prototype.weights>) {
@@ -110,45 +104,39 @@ export class TrustScoreCalculator {
      * Calculate the hybrid trust score from all available signals
      */
     calculate(input: TrustScoreInput): TrustScoreBreakdown {
-        const sourceRetrievalScore = this.calculateSourceRetrievalScore(input.claimedSources);
         const semanticSimilarityScore = this.calculateSemanticSimilarityScore(input.vectorSimilarityScores);
         const aiVerificationScore = this.normalizeAIScore(input.aiVerificationScore);
         const crossModelFactCheckScore = this.normalizeAIScore(input.factCheckScore);
-        const claimCoverageScore = this.calculateClaimCoverageScore(input.claimedSources);
 
         // Adjust weights dynamically based on available signals
         const adjustedWeights = this.adjustWeights(input);
 
         // Calculate weighted sum
         const finalScore = Math.round(
-            (adjustedWeights.sourceRetrieval * sourceRetrievalScore) +
             (adjustedWeights.semanticSimilarity * semanticSimilarityScore) +
             (adjustedWeights.aiVerification * aiVerificationScore) +
-            (adjustedWeights.crossModelFactCheck * crossModelFactCheckScore) +
-            (adjustedWeights.claimCoverage * claimCoverageScore)
+            (adjustedWeights.crossModelFactCheck * crossModelFactCheckScore)
         );
 
         // Clamp to 0-100
         const clampedScore = Math.max(0, Math.min(100, finalScore));
 
         const reasoning = this.buildReasoning(
-            { sourceRetrievalScore, semanticSimilarityScore, aiVerificationScore, crossModelFactCheckScore, claimCoverageScore },
+            { semanticSimilarityScore, aiVerificationScore, crossModelFactCheckScore },
             adjustedWeights,
             input
         );
 
-        logToFile(`Trust Score Breakdown: source=${sourceRetrievalScore}, similarity=${semanticSimilarityScore}, ` +
-            `ai=${aiVerificationScore}, factcheck=${crossModelFactCheckScore}, coverage=${claimCoverageScore} → final=${clampedScore}`);
+        logToFile(`Trust Score Breakdown: similarity=${semanticSimilarityScore}, ` +
+            `ai=${aiVerificationScore}, factcheck=${crossModelFactCheckScore} → final=${clampedScore}`);
 
         return {
             finalScore: clampedScore,
             trustLevel: this.determineTrustLevel(clampedScore),
             components: {
-                sourceRetrievalScore,
                 semanticSimilarityScore,
                 aiVerificationScore,
-                crossModelFactCheckScore,
-                claimCoverageScore
+                crossModelFactCheckScore
             },
             weights: adjustedWeights,
             reasoning
@@ -273,13 +261,6 @@ export class TrustScoreCalculator {
         input: TrustScoreInput
     ): string {
         const parts: string[] = [];
-
-        const totalSources = input.claimedSources.length;
-        const verifiedSources = input.claimedSources.filter(s => s.wasFoundInDB).length;
-
-        if (totalSources > 0) {
-            parts.push(`${verifiedSources}/${totalSources} source(s) independently verified.`);
-        }
 
         if (components.semanticSimilarityScore >= 70) {
             parts.push('Response content has strong semantic overlap with source materials.');

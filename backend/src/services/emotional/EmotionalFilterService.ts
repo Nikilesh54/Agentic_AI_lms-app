@@ -267,7 +267,7 @@ Rules:
     }
 
     this.client = new Groq({ apiKey });
-    this.model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    this.model = process.env.GROQ_EVAL_MODEL || process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
     this.enabled = EMOTIONAL_FILTER_CONFIG?.ENABLED ?? true;
     this.cache = new EmotionCache();
     this.rateLimiter = getGroqRateLimitManager();

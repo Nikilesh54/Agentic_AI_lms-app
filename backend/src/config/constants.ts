@@ -220,7 +220,7 @@ export const EMOTIONAL_FILTER_CONFIG = {
   ENABLED: process.env.EMOTIONAL_FILTER_ENABLED !== 'false',
 
   /** Groq model to use for emotional analysis (fast models recommended) */
-  MODEL: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+  MODEL: process.env.GROQ_EVAL_MODEL || process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
 
   /** Maximum conversation history messages to analyze */
   MAX_HISTORY_MESSAGES: 10,
@@ -252,7 +252,7 @@ export const FACT_CHECK_CONFIG = {
   ENABLED: process.env.FACT_CHECK_ENABLED !== 'false',
 
   /** Groq model to use for fact-checking */
-  MODEL: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+  MODEL: process.env.GROQ_EVAL_MODEL || process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
 
   /** Temperature for fact-checking (lower = more consistent) */
   TEMPERATURE: 0.2,
