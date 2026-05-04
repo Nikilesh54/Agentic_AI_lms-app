@@ -13,6 +13,7 @@ import chatRoutes from './routes/chat';
 import gradingAssistantRoutes from './routes/gradingAssistant';
 import usageRoutes from './routes/usage';
 import { connectDB } from './config/database';
+import { errorHandler } from './utils/errorHandler';
 
 dotenv.config();
 
@@ -206,6 +207,9 @@ app.get('/api/db-test', async (req, res) => {
     });
   }
 });
+
+// Global error handling middleware (must be last)
+app.use(errorHandler);
 
 // Connect to database and start server
 const startServer = async () => {

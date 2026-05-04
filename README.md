@@ -106,7 +106,7 @@ cp .env.example .env
 3. **Configure `.env` file**: Edit `backend/.env` with your credentials:
 ```env
 # Server Configuration
-PORT=5000
+PORT=5001
 
 # PostgreSQL Database
 DB_HOST=localhost
@@ -152,7 +152,7 @@ GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
 
 4. **Configure frontend environment**: Create `frontend/.env`:
 ```env
-VITE_API_BASE_URL=http://localhost:5000/api
+VITE_API_BASE_URL=http://localhost:5001/api
 ```
 
 ### API Keys Setup
@@ -212,7 +212,7 @@ npm run build
 npm run dev
 ```
 
-The backend will be running on `http://localhost:5000`. A root administrator account is automatically seeded on first run.
+The backend will be running on `http://localhost:5001`. A root administrator account is automatically seeded on first run.
 
 ### Frontend Setup
 
@@ -237,4 +237,3 @@ npm run dev
 ## Support
 
 If you encounter any issues or have questions, feel free to [open an issue](https://github.com/Nikilesh54/Agentic_AI_lms-app/issues) in this repository or contact me via email at [nikileshm@vt.edu](mailto:nikileshm@vt.edu).
-
