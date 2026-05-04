@@ -4,6 +4,8 @@ import { authenticate, authorize } from '../middleware/auth';
 import { generateSignedUrl } from '../config/storage';
 
 const router = express.Router();
+const VALID_ROLES = ['root', 'professor', 'student'];
+const VALID_STATUSES = ['pending', 'approved', 'rejected', 'active'];
 
 // Apply authentication and authorization to all root routes
 router.use(authenticate);
@@ -90,21 +92,39 @@ router.patch('/professors/:id/status', async (req, res) => {
 // Get all users
 router.get('/users', async (req, res) => {
   try {
-    const { role, status } = req.query;
+    const { role, status, search } = req.query;
 
     let query = 'SELECT id, full_name, email, role, status, created_at, updated_at FROM users WHERE 1=1';
     const params: any[] = [];
     let paramCount = 1;
 
     if (role) {
+      if (typeof role !== 'string' || !VALID_ROLES.includes(role)) {
+        return res.status(400).json({ error: 'Invalid role filter' });
+      }
+
       query += ` AND role = $${paramCount}`;
       params.push(role);
       paramCount++;
     }
 
     if (status) {
+      if (typeof status !== 'string' || !VALID_STATUSES.includes(status)) {
+        return res.status(400).json({ error: 'Invalid status filter' });
+      }
+
       query += ` AND status = $${paramCount}`;
       params.push(status);
+      paramCount++;
+    }
+
+    if (search) {
+      if (typeof search !== 'string') {
+        return res.status(400).json({ error: 'Invalid search filter' });
+      }
+
+      query += ` AND (full_name ILIKE $${paramCount} OR email ILIKE $${paramCount})`;
+      params.push(`%${search.trim()}%`);
       paramCount++;
     }
 
@@ -118,6 +138,57 @@ router.get('/users', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching users:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update a user's status
+router.patch('/users/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!VALID_STATUSES.includes(status)) {
+      return res.status(400).json({
+        error: 'Invalid status',
+        message: `Status must be one of: ${VALID_STATUSES.join(', ')}`
+      });
+    }
+
+    if (req.user && req.user.userId === parseInt(id)) {
+      return res.status(400).json({
+        error: 'Cannot update yourself',
+        message: 'You cannot change your own account status'
+      });
+    }
+
+    const user = await pool.query(
+      'SELECT id, role FROM users WHERE id = $1',
+      [id]
+    );
+
+    if (user.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.rows[0].role === 'root') {
+      return res.status(400).json({ error: 'Root user status cannot be changed here' });
+    }
+
+    const result = await pool.query(
+      `UPDATE users
+       SET status = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING id, full_name, email, role, status, created_at, updated_at`,
+      [status, id]
+    );
+
+    res.json({
+      message: 'User status updated successfully',
+      user: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating user status:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -194,6 +265,10 @@ router.put('/courses/:id', async (req, res) => {
     const { id } = req.params;
     const { title, description, instructorId } = req.body;
 
+    if (title !== undefined && typeof title === 'string' && title.trim().length === 0) {
+      return res.status(400).json({ error: 'Course title cannot be empty' });
+    }
+
     // Check if course exists
     const course = await pool.query('SELECT id FROM courses WHERE id = $1', [id]);
 
@@ -202,7 +277,7 @@ router.put('/courses/:id', async (req, res) => {
     }
 
     // If instructor is provided, verify they exist and are a professor
-    if (instructorId) {
+    if (instructorId !== undefined && instructorId !== null && instructorId !== '') {
       const instructor = await pool.query(
         'SELECT id, role FROM users WHERE id = $1',
         [instructorId]
@@ -220,12 +295,19 @@ router.put('/courses/:id', async (req, res) => {
     const result = await pool.query(
       `UPDATE courses
        SET title = COALESCE($1, title),
-           description = COALESCE($2, description),
-           instructor_id = COALESCE($3, instructor_id),
+           description = CASE WHEN $2 THEN $3 ELSE description END,
+           instructor_id = CASE WHEN $4 THEN $5 ELSE instructor_id END,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $4
+       WHERE id = $6
        RETURNING *`,
-      [title, description, instructorId, id]
+      [
+        title?.trim(),
+        description !== undefined,
+        description ?? null,
+        instructorId !== undefined,
+        instructorId === '' ? null : instructorId,
+        id
+      ]
     );
 
     res.json({
@@ -385,15 +467,43 @@ router.delete('/users/:id', async (req, res) => {
 // Get all enrollments
 router.get('/enrollments', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT e.id, e.enrolled_at,
+    const { courseId, studentId, search } = req.query;
+
+    let query = `SELECT e.id, e.enrolled_at,
               e.user_id, u.full_name as student_name, u.email as student_email,
               e.course_id, c.title as course_title
        FROM enrollments e
        JOIN users u ON e.user_id = u.id
        JOIN courses c ON e.course_id = c.id
-       ORDER BY e.enrolled_at DESC`
-    );
+       WHERE 1=1`;
+    const params: any[] = [];
+    let paramCount = 1;
+
+    if (courseId) {
+      query += ` AND e.course_id = $${paramCount}`;
+      params.push(courseId);
+      paramCount++;
+    }
+
+    if (studentId) {
+      query += ` AND e.user_id = $${paramCount}`;
+      params.push(studentId);
+      paramCount++;
+    }
+
+    if (search) {
+      if (typeof search !== 'string') {
+        return res.status(400).json({ error: 'Invalid search filter' });
+      }
+
+      query += ` AND (u.full_name ILIKE $${paramCount} OR u.email ILIKE $${paramCount} OR c.title ILIKE $${paramCount})`;
+      params.push(`%${search.trim()}%`);
+      paramCount++;
+    }
+
+    query += ' ORDER BY e.enrolled_at DESC';
+
+    const result = await pool.query(query, params);
 
     res.json({
       message: 'Enrollments retrieved successfully',
@@ -408,11 +518,12 @@ router.get('/enrollments', async (req, res) => {
 // Get system statistics
 router.get('/stats', async (req, res) => {
   try {
-    const [users, courses, enrollments, pendingProfessors] = await Promise.all([
+    const [users, courses, enrollments, pendingProfessors, databaseHealth] = await Promise.all([
       pool.query('SELECT role, COUNT(*) as count FROM users GROUP BY role'),
       pool.query('SELECT COUNT(*) as count FROM courses'),
       pool.query('SELECT COUNT(*) as count FROM enrollments'),
-      pool.query('SELECT COUNT(*) as count FROM users WHERE role = $1 AND status = $2', ['professor', 'pending'])
+      pool.query('SELECT COUNT(*) as count FROM users WHERE role = $1 AND status = $2', ['professor', 'pending']),
+      pool.query('SELECT NOW() as checked_at')
     ]);
 
     const usersByRole = users.rows.reduce((acc, row) => {
@@ -426,7 +537,11 @@ router.get('/stats', async (req, res) => {
         users: usersByRole,
         totalCourses: parseInt(courses.rows[0].count),
         totalEnrollments: parseInt(enrollments.rows[0].count),
-        pendingProfessors: parseInt(pendingProfessors.rows[0].count)
+        pendingProfessors: parseInt(pendingProfessors.rows[0].count),
+        health: {
+          database: 'connected',
+          checkedAt: databaseHealth.rows[0].checked_at
+        }
       }
     });
   } catch (error) {

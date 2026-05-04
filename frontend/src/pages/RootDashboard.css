@@ -306,6 +306,38 @@
   margin: 0;
 }
 
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.filter-bar input,
+.filter-bar select,
+.status-select {
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--input-text);
+  font-size: 0.95rem;
+}
+
+.filter-bar input {
+  min-width: 260px;
+  flex: 1;
+}
+
+.filter-bar input:focus,
+.filter-bar select:focus,
+.status-select:focus {
+  outline: none;
+  border-color: var(--input-border-focus);
+  box-shadow: var(--focus-ring);
+}
+
 .btn-primary {
   padding: 0.75rem 1.5rem;
   background: var(--btn-primary-bg);
@@ -334,6 +366,22 @@
 
 .btn-secondary:hover {
   background: var(--color-beige-dark);
+}
+
+.btn-icon {
+  padding: 0.375rem 0.625rem;
+  background: var(--color-bg-primary);
+  color: var(--vt-maroon);
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-icon:hover {
+  background: var(--vt-maroon);
+  color: white;
 }
 
 .courses-grid {
@@ -368,6 +416,12 @@
   font-size: 1.125rem;
   color: var(--color-text-primary);
   flex: 1;
+}
+
+.course-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
 }
 
 .btn-delete-icon {

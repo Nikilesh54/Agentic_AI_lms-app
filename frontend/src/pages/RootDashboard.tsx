@@ -46,18 +46,32 @@ interface Course {
   enrolled_students: number;
 }
 
+interface Enrollment {
+  id: number;
+  enrolled_at: string;
+  user_id: number;
+  student_name: string;
+  student_email: string;
+  course_id: number;
+  course_title: string;
+}
+
 interface Stats {
   users: { [role: string]: number };
   totalCourses: number;
   totalEnrollments: number;
   pendingProfessors: number;
+  health?: {
+    database: string;
+    checkedAt: string;
+  };
 }
 
 const RootDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'professors' | 'users' | 'courses' | 'files' | 'usage'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pending' | 'professors' | 'users' | 'courses' | 'enrollments' | 'files' | 'usage'>('overview');
   const [loading, setLoading] = useState(false);
 
   // State
@@ -66,6 +80,7 @@ const RootDashboard: React.FC = () => {
   const [professors, setProfessors] = useState<Professor[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [materials, setMaterials] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [fileStats, setFileStats] = useState<any>(null);
@@ -74,10 +89,14 @@ const RootDashboard: React.FC = () => {
   const [usageLogs, setUsageLogs] = useState<any[]>([]);
   const [usageFilter, setUsageFilter] = useState<string>('');
   const [usageView, setUsageView] = useState<'summary' | 'logs'>('summary');
+  const [userFilters, setUserFilters] = useState({ search: '', role: '', status: '' });
+  const [enrollmentSearch, setEnrollmentSearch] = useState('');
 
   // New course form
   const [showAddCourse, setShowAddCourse] = useState(false);
   const [newCourse, setNewCourse] = useState({ title: '', description: '' });
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [courseForm, setCourseForm] = useState({ title: '', description: '' });
 
   // Course assignment
   const [showAssignCourse, setShowAssignCourse] = useState(false);
@@ -90,6 +109,7 @@ const RootDashboard: React.FC = () => {
     if (activeTab === 'professors') loadProfessors();
     if (activeTab === 'users') loadUsers();
     if (activeTab === 'courses') loadCourses();
+    if (activeTab === 'enrollments') loadEnrollments();
     if (activeTab === 'files') loadFiles();
     if (activeTab === 'usage') loadUsage();
   }, [activeTab]);
@@ -118,13 +138,31 @@ const RootDashboard: React.FC = () => {
     }
   };
 
-  const loadUsers = async () => {
+  const loadUsers = async (filters = userFilters) => {
     try {
       setLoading(true);
-      const response = await rootAPI.getUsers();
+      const response = await rootAPI.getUsers({
+        search: filters.search || undefined,
+        role: filters.role || undefined,
+        status: filters.status || undefined,
+      });
       setUsers(response.data.users);
     } catch (error) {
       showToast('Failed to load users', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadEnrollments = async (search = enrollmentSearch) => {
+    try {
+      setLoading(true);
+      const response = await rootAPI.getEnrollments({
+        search: search || undefined,
+      });
+      setEnrollments(response.data.enrollments);
+    } catch (error) {
+      showToast('Failed to load enrollments', 'error');
     } finally {
       setLoading(false);
     }
@@ -171,6 +209,17 @@ const RootDashboard: React.FC = () => {
     }
   };
 
+  const handleUpdateUserStatus = async (userId: number, status: string) => {
+    try {
+      await rootAPI.updateUserStatus(userId, status);
+      showToast('User status updated successfully', 'success');
+      loadUsers();
+      loadStats();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to update user status', 'error');
+    }
+  };
+
   const handleAddCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -195,6 +244,29 @@ const RootDashboard: React.FC = () => {
       loadCourses();
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Failed to delete course', 'error');
+    }
+  };
+
+  const openEditCourseModal = (course: Course) => {
+    setEditingCourse(course);
+    setCourseForm({
+      title: course.title,
+      description: course.description || '',
+    });
+  };
+
+  const handleUpdateCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCourse) return;
+
+    try {
+      await rootAPI.updateCourse(editingCourse.id, courseForm);
+      showToast('Course updated successfully', 'success');
+      setEditingCourse(null);
+      setCourseForm({ title: '', description: '' });
+      loadCourses();
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to update course', 'error');
     }
   };
 
@@ -376,6 +448,12 @@ const RootDashboard: React.FC = () => {
           Courses
         </button>
         <button
+          className={`tab ${activeTab === 'enrollments' ? 'active' : ''}`}
+          onClick={() => setActiveTab('enrollments')}
+        >
+          Enrollments
+        </button>
+        <button
           className={`tab ${activeTab === 'files' ? 'active' : ''}`}
           onClick={() => setActiveTab('files')}
         >
@@ -416,6 +494,10 @@ const RootDashboard: React.FC = () => {
               <div className="stat-card highlight">
                 <h3>{stats.pendingProfessors}</h3>
                 <p>Pending Approvals</p>
+              </div>
+              <div className="stat-card">
+                <h3>{stats.health?.database === 'connected' ? 'OK' : '-'}</h3>
+                <p>Database Health</p>
               </div>
             </div>
           </div>
@@ -581,7 +663,56 @@ const RootDashboard: React.FC = () => {
         {/* Users Tab */}
         {activeTab === 'users' && (
           <div className="users-section">
-            <h2>All Users</h2>
+            <div className="section-header">
+              <h2>All Users</h2>
+            </div>
+            <form
+              className="filter-bar"
+              onSubmit={(e) => {
+                e.preventDefault();
+                loadUsers();
+              }}
+            >
+              <input
+                type="search"
+                value={userFilters.search}
+                onChange={(e) => setUserFilters({ ...userFilters, search: e.target.value })}
+                placeholder="Search name or email"
+              />
+              <select
+                value={userFilters.role}
+                onChange={(e) => setUserFilters({ ...userFilters, role: e.target.value })}
+                title="Filter by role"
+              >
+                <option value="">All roles</option>
+                <option value="student">Students</option>
+                <option value="professor">Professors</option>
+                <option value="root">Root admins</option>
+              </select>
+              <select
+                value={userFilters.status}
+                onChange={(e) => setUserFilters({ ...userFilters, status: e.target.value })}
+                title="Filter by status"
+              >
+                <option value="">All statuses</option>
+                <option value="active">Active</option>
+                <option value="approved">Approved</option>
+                <option value="pending">Pending</option>
+                <option value="rejected">Rejected</option>
+              </select>
+              <button type="submit" className="btn-primary">Apply</button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  const clearedFilters = { search: '', role: '', status: '' };
+                  setUserFilters(clearedFilters);
+                  loadUsers(clearedFilters);
+                }}
+              >
+                Clear
+              </button>
+            </form>
             {users.length === 0 ? (
               <p className="empty-message">No users found</p>
             ) : (
@@ -615,12 +746,25 @@ const RootDashboard: React.FC = () => {
                         <td>{new Date(user.created_at).toLocaleDateString()}</td>
                         <td>
                           {user.role !== 'root' && (
-                            <button
-                              className="btn-delete"
-                              onClick={() => handleDeleteUser(user.id)}
-                            >
-                              Delete
-                            </button>
+                            <div className="action-buttons">
+                              <select
+                                value={user.status}
+                                onChange={(e) => handleUpdateUserStatus(user.id, e.target.value)}
+                                className="status-select"
+                                title="Change user status"
+                              >
+                                <option value="active">Active</option>
+                                <option value="approved">Approved</option>
+                                <option value="pending">Pending</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
+                              <button
+                                className="btn-delete"
+                                onClick={() => handleDeleteUser(user.id)}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -682,6 +826,43 @@ const RootDashboard: React.FC = () => {
               </div>
             )}
 
+            {editingCourse && (
+              <div className="modal-overlay" onClick={() => setEditingCourse(null)}>
+                <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                  <h3>Edit Course</h3>
+                  <form onSubmit={handleUpdateCourse}>
+                    <div className="form-group">
+                      <label>Course Title</label>
+                      <input
+                        type="text"
+                        value={courseForm.title}
+                        onChange={(e) => setCourseForm({ ...courseForm, title: e.target.value })}
+                        required
+                        placeholder="Course title"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Description</label>
+                      <textarea
+                        value={courseForm.description}
+                        onChange={(e) => setCourseForm({ ...courseForm, description: e.target.value })}
+                        placeholder="Course description..."
+                        rows={4}
+                      />
+                    </div>
+                    <div className="modal-actions">
+                      <button type="button" onClick={() => setEditingCourse(null)} className="btn-secondary">
+                        Cancel
+                      </button>
+                      <button type="submit" className="btn-primary">
+                        Save Changes
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
             {courses.length === 0 ? (
               <p className="empty-message">No courses found</p>
             ) : (
@@ -690,13 +871,22 @@ const RootDashboard: React.FC = () => {
                   <div key={course.id} className="course-card">
                     <div className="course-header">
                       <h3>{course.title}</h3>
-                      <button
-                        className="btn-delete-icon"
-                        onClick={() => handleDeleteCourse(course.id)}
-                        title="Delete course"
-                      >
-                        ✕
-                      </button>
+                      <div className="course-card-actions">
+                        <button
+                          className="btn-icon"
+                          onClick={() => openEditCourseModal(course)}
+                          title="Edit course"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="btn-delete-icon"
+                          onClick={() => handleDeleteCourse(course.id)}
+                          title="Delete course"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                     <p className="course-description">{course.description}</p>
                     <div className="course-info">
@@ -705,6 +895,67 @@ const RootDashboard: React.FC = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Enrollments Tab */}
+        {activeTab === 'enrollments' && (
+          <div className="enrollments-section">
+            <div className="section-header">
+              <h2>Enrollment Management</h2>
+            </div>
+            <form
+              className="filter-bar"
+              onSubmit={(e) => {
+                e.preventDefault();
+                loadEnrollments();
+              }}
+            >
+              <input
+                type="search"
+                value={enrollmentSearch}
+                onChange={(e) => setEnrollmentSearch(e.target.value)}
+                placeholder="Search student, email, or course"
+              />
+              <button type="submit" className="btn-primary">Apply</button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setEnrollmentSearch('');
+                  loadEnrollments('');
+                }}
+              >
+                Clear
+              </button>
+            </form>
+
+            {enrollments.length === 0 ? (
+              <p className="empty-message">No enrollments found</p>
+            ) : (
+              <div className="table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Email</th>
+                      <th>Course</th>
+                      <th>Enrolled On</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {enrollments.map((enrollment) => (
+                      <tr key={enrollment.id}>
+                        <td>{enrollment.student_name}</td>
+                        <td>{enrollment.student_email}</td>
+                        <td>{enrollment.course_title}</td>
+                        <td>{new Date(enrollment.enrolled_at).toLocaleDateString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

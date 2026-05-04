@@ -24,8 +24,11 @@ export const rootAPI = {
   updateProfessorStatus: (professorId: number, status: string) =>
     apiClient.patch(`/root/professors/${professorId}/status`, { status }),
 
-  getUsers: (params?: { role?: string; status?: string }) =>
+  getUsers: (params?: { role?: string; status?: string; search?: string }) =>
     apiClient.get('/root/users', { params }),
+
+  updateUserStatus: (userId: number, status: string) =>
+    apiClient.patch(`/root/users/${userId}/status`, { status }),
 
   deleteUser: (userId: number) =>
     apiClient.delete(`/root/users/${userId}`),
@@ -42,8 +45,8 @@ export const rootAPI = {
   deleteCourse: (courseId: number) =>
     apiClient.delete(`/root/courses/${courseId}`),
 
-  getEnrollments: () =>
-    apiClient.get('/root/enrollments'),
+  getEnrollments: (params?: { courseId?: number; studentId?: number; search?: string }) =>
+    apiClient.get('/root/enrollments', { params }),
 
   getStats: () =>
     apiClient.get('/root/stats'),
