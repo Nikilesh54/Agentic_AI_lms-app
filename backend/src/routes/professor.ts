@@ -1499,6 +1499,13 @@ router.put('/submissions/:submissionId/grade', async (req, res) => {
       [grade, feedback || null, submissionId]
     );
 
+    await pool.query(
+      `UPDATE tentative_grades
+       SET is_final = true, finalized_at = CURRENT_TIMESTAMP, finalized_by = $1
+       WHERE submission_id = $2 AND is_final = false`,
+      [req.user!.userId, submissionId]
+    );
+
     res.json({
       message: 'Submission graded successfully',
       submission: result.rows[0]

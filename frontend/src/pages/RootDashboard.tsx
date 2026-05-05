@@ -294,7 +294,7 @@ const RootDashboard: React.FC = () => {
       setSelectedCourseId('');
       loadProfessors();
     } catch (error: any) {
-      showToast(error.response?.data?.error || 'Failed to assign course', 'error');
+      showToast(error.response?.data?.message || error.response?.data?.error || 'Failed to assign course', 'error');
     }
   };
 

@@ -370,6 +370,26 @@ export const gradingAssistantAPI = {
   }) =>
     apiClient.post('/grading-assistant/create-rubric', data),
 
+  // Update grading rubric for an assignment (Professor only)
+  updateRubric: (assignmentId: number, data: {
+    rubricName: string;
+    criteria: Array<{
+      name: string;
+      description: string;
+      points: number;
+      excellent_description?: string;
+      good_description?: string;
+      fair_description?: string;
+      poor_description?: string;
+    }>;
+    totalPoints: number;
+  }) =>
+    apiClient.put(`/grading-assistant/rubric/${assignmentId}`, data),
+
+  // Delete grading rubric for an assignment (Professor only)
+  deleteRubric: (assignmentId: number) =>
+    apiClient.delete(`/grading-assistant/rubric/${assignmentId}`),
+
   // Get rubric for an assignment
   getRubric: (assignmentId: number) =>
     apiClient.get(`/grading-assistant/rubric/${assignmentId}`),

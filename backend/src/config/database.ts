@@ -105,6 +105,7 @@ const createTables = async () => {
         course_id INTEGER REFERENCES courses(id),
         due_date TIMESTAMP,
         points INTEGER DEFAULT 100,
+        ai_grading_criteria JSONB,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -119,6 +120,18 @@ const createTables = async () => {
           WHERE table_name = 'assignments' AND column_name = 'question_text'
         ) THEN
           ALTER TABLE assignments ADD COLUMN question_text TEXT;
+        END IF;
+      END $$;
+    `);
+
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'assignments' AND column_name = 'ai_grading_criteria'
+        ) THEN
+          ALTER TABLE assignments ADD COLUMN ai_grading_criteria JSONB;
         END IF;
       END $$;
     `);

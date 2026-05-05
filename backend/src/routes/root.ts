@@ -610,6 +610,14 @@ router.post('/professors/:professorId/courses', async (req, res) => {
       return res.status(400).json({ error: 'User is not a professor' });
     }
 
+    if (professor.rows[0].status !== 'approved' && professor.rows[0].status !== 'active') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Professor must be approved before assigning courses',
+        message: 'Approve this professor before assigning a course'
+      });
+    }
+
     // Verify course exists
     const course = await client.query(
       'SELECT id, title FROM courses WHERE id = $1',
@@ -640,6 +648,25 @@ router.post('/professors/:professorId/courses', async (req, res) => {
       return res.status(400).json({
         error: 'This course already has an instructor assigned',
         message: 'Please remove the current instructor first or choose a different course'
+      });
+    }
+
+    // The current professor dashboard supports one assigned course per professor.
+    // Return a validation error before the database UNIQUE(user_id) constraint fires.
+    const existingProfessorCourse = await client.query(
+      `SELECT ci.course_id, c.title
+       FROM course_instructors ci
+       JOIN courses c ON ci.course_id = c.id
+       WHERE ci.user_id = $1 AND ci.course_id <> $2
+       LIMIT 1`,
+      [professorId, courseId]
+    );
+
+    if (existingProfessorCourse.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Professor already has an assigned course',
+        message: `Remove "${existingProfessorCourse.rows[0].title}" before assigning another course`
       });
     }
 

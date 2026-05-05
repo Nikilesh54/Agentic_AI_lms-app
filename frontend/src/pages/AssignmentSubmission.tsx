@@ -214,13 +214,23 @@ const AssignmentSubmission: React.FC = () => {
 
           {hasSubmitted && submission.grade !== null && (
             <div className="assignment-section grade-section">
-              <h2>Your Grade</h2>
+              <h2>Your Final Grade</h2>
               <div className="grade-display">
                 <span className="grade-value">{submission.grade} / {assignment.points}</span>
               </div>
+              <div className="final-grade-meta">
+                {submission.graded_at ? (
+                  <span>Reviewed on {new Date(submission.graded_at).toLocaleString()}</span>
+                ) : (
+                  <span>Reviewed by your professor</span>
+                )}
+                {tentativeGrade?.is_final && (
+                  <span>Finalized after AI-assisted review</span>
+                )}
+              </div>
               {submission.feedback && (
                 <div className="feedback">
-                  <h3>Feedback:</h3>
+                  <h3>Professor Feedback</h3>
                   <p>{submission.feedback}</p>
                 </div>
               )}

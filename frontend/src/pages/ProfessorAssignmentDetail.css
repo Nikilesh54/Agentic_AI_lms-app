@@ -318,6 +318,15 @@
   line-height: 1.6;
 }
 
+.finalized-ai-note {
+  background: #eff6ff;
+  border-left: 3px solid #3b82f6;
+  border-radius: 6px;
+  color: #1e40af;
+  font-size: 0.85rem;
+  padding: 0.75rem 1rem;
+}
+
 .submission-footer {
   margin-top: 1rem;
   padding-top: 1rem;
@@ -405,6 +414,30 @@
 
 .btn-delete-icon:hover {
   background: #fee2e2;
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-right: auto;
+  transition: background 0.2s;
+}
+
+.btn-danger:hover {
+  background: #b91c1c;
+}
+
+.btn-danger:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 /* Modal */

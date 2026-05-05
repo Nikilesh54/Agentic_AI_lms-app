@@ -73,6 +73,8 @@ const ProfessorAssignmentDetail: React.FC = () => {
   const [showTentativeGradeModal, setShowTentativeGradeModal] = useState(false);
   const [selectedTentativeGrade, setSelectedTentativeGrade] = useState<TentativeGrade | null>(null);
   const [finalizingGrade, setFinalizingGrade] = useState(false);
+  const [savingRubric, setSavingRubric] = useState(false);
+  const [deletingRubric, setDeletingRubric] = useState(false);
 
   useEffect(() => {
     if (assignmentId) {
@@ -327,7 +329,7 @@ const ProfessorAssignmentDetail: React.FC = () => {
     setRubricForm({ ...rubricForm, criteria: newCriteria });
   };
 
-  const handleCreateRubric = async (e: React.FormEvent) => {
+  const handleSaveRubric = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignment) return;
 
@@ -353,22 +355,56 @@ const ProfessorAssignmentDetail: React.FC = () => {
     const totalPoints = rubricForm.criteria.reduce((sum, c) => sum + c.points, 0);
 
     try {
-      await gradingAssistantAPI.createRubric({
-        assignmentId: assignment.id,
-        rubricName: rubricForm.rubricName,
-        criteria: rubricForm.criteria,
-        totalPoints
-      });
-      showToast('Rubric created successfully', 'success');
+      setSavingRubric(true);
+
+      if (rubric) {
+        await gradingAssistantAPI.updateRubric(assignment.id, {
+          rubricName: rubricForm.rubricName,
+          criteria: rubricForm.criteria,
+          totalPoints
+        });
+      } else {
+        await gradingAssistantAPI.createRubric({
+          assignmentId: assignment.id,
+          rubricName: rubricForm.rubricName,
+          criteria: rubricForm.criteria,
+          totalPoints
+        });
+      }
+
+      showToast(`Rubric ${rubric ? 'updated' : 'created'} successfully`, 'success');
       setShowRubricModal(false);
       loadRubric();
     } catch (error: any) {
-      showToast(error.response?.data?.error || 'Failed to create rubric', 'error');
+      showToast(error.response?.data?.error || `Failed to ${rubric ? 'update' : 'create'} rubric`, 'error');
+    } finally {
+      setSavingRubric(false);
+    }
+  };
+
+  const handleDeleteRubric = async () => {
+    if (!assignment || !rubric) return;
+    if (!confirm('Delete this rubric? AI grading will fall back to assignment criteria until a new rubric is created.')) return;
+
+    try {
+      setDeletingRubric(true);
+      await gradingAssistantAPI.deleteRubric(assignment.id);
+      showToast('Rubric deleted successfully', 'success');
+      setRubric(null);
+      setShowRubricModal(false);
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Failed to delete rubric', 'error');
+    } finally {
+      setDeletingRubric(false);
     }
   };
 
   const openTentativeGradeModal = (tentativeGrade: TentativeGrade) => {
     setSelectedTentativeGrade(tentativeGrade);
+    setGradeForm({
+      grade: tentativeGrade.tentative_grade?.toString() || '',
+      feedback: tentativeGrade.grading_rationale || '',
+    });
     setShowTentativeGradeModal(true);
   };
 
@@ -393,6 +429,14 @@ const ProfessorAssignmentDetail: React.FC = () => {
       setShowTentativeGradeModal(false);
       setSelectedTentativeGrade(null);
       setGradeForm({ grade: '', feedback: '' });
+      setTentativeGrades(prev => ({
+        ...prev,
+        [selectedTentativeGrade.submission_id]: {
+          ...selectedTentativeGrade,
+          is_final: true,
+          finalized_at: new Date().toISOString(),
+        }
+      }));
       loadSubmissions();
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Failed to finalize grade', 'error');
@@ -588,6 +632,15 @@ const ProfessorAssignmentDetail: React.FC = () => {
                           <p>{submission.feedback}</p>
                         </div>
                       )}
+
+                      {tentativeGrades[submission.id]?.is_final && submission.grade !== null && (
+                        <div className="finalized-ai-note">
+                          Finalized after AI-assisted review on{' '}
+                          {tentativeGrades[submission.id].finalized_at
+                            ? new Date(tentativeGrades[submission.id].finalized_at!).toLocaleString()
+                            : 'review'}
+                        </div>
+                      )}
                     </div>
 
                     {/* Tentative Grade Display */}
@@ -765,7 +818,7 @@ const ProfessorAssignmentDetail: React.FC = () => {
         <div className="modal-overlay" onClick={() => setShowRubricModal(false)}>
           <div className="modal-content rubric-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h3>{rubric ? 'View/Edit Rubric' : 'Create Grading Rubric'}</h3>
-            <form onSubmit={handleCreateRubric}>
+            <form onSubmit={handleSaveRubric}>
               <div className="form-group">
                 <label htmlFor="rubric-name">Rubric Name *</label>
                 <input
@@ -896,15 +949,26 @@ const ProfessorAssignmentDetail: React.FC = () => {
               </div>
 
               <div className="modal-actions" style={{ marginTop: '20px' }}>
+                {rubric && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteRubric}
+                    className="btn-danger"
+                    disabled={savingRubric || deletingRubric}
+                  >
+                    {deletingRubric ? 'Deleting...' : 'Delete Rubric'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowRubricModal(false)}
                   className="btn-secondary"
+                  disabled={savingRubric || deletingRubric}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn-primary">
-                  {rubric ? 'Update Rubric' : 'Create Rubric'}
+                <button type="submit" className="btn-primary" disabled={savingRubric || deletingRubric}>
+                  {savingRubric ? 'Saving...' : rubric ? 'Update Rubric' : 'Create Rubric'}
                 </button>
               </div>
             </form>
