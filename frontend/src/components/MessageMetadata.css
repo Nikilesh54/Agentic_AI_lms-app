@@ -51,6 +51,18 @@
   animation: pulse 2s infinite;
 }
 
+.muted-badge {
+  border-color: #d1d5db;
+  color: #6b7280;
+  background: #f9fafb;
+  cursor: default;
+}
+
+.muted-badge:hover {
+  transform: none;
+  box-shadow: none;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }

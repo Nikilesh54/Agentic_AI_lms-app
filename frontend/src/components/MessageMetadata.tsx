@@ -154,6 +154,12 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
           </button>
         )}
 
+        {!loadingSources && sourcesCount === 0 && (
+          <span className="metadata-badge muted-badge" title="No explicit sources were returned for this response">
+            Sources: none
+          </span>
+        )}
+
         {loadingTrust ? (
           <span className="metadata-badge verifying-badge">
             Verifying...
@@ -170,7 +176,11 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
             </span>
             Trust: {trustScore.trust_score}/100
           </button>
-        ) : null}
+        ) : (
+          <span className="metadata-badge muted-badge" title="Trust score is not available for this response">
+            Trust: unavailable
+          </span>
+        )}
 
         {/* Emotional Indicator Badge */}
         {emotionalFilter && emotionalFilter.applied && (
@@ -201,7 +211,11 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
             </span>
             Fact Check: {factCheck.overall_accuracy_score}/100
           </button>
-        ) : null}
+        ) : (
+          <span className="metadata-badge muted-badge" title="Fact-check result is not available for this response">
+            Fact Check: unavailable
+          </span>
+        )}
       </div>
 
       {/* Sources Dropdown */}

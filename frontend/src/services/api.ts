@@ -305,6 +305,23 @@ export const chatAPI = {
   }) =>
     apiClient.post('/chat/generated-content', data),
 
+  // Generate and save a practice quiz
+  generatePracticeQuiz: (data: {
+    courseId: number;
+    topic?: string;
+    questionCount?: number;
+    difficulty?: 'easy' | 'medium' | 'hard' | 'mixed';
+  }) =>
+    apiClient.post('/chat/quiz-generate', data),
+
+  // Update saved generated content
+  updateGeneratedContent: (contentId: number, data: {
+    title?: string;
+    contentType?: string;
+    isSaved?: boolean;
+  }) =>
+    apiClient.patch(`/chat/generated-content/${contentId}`, data),
+
   // Delete generated content
   deleteGeneratedContent: (contentId: number) =>
     apiClient.delete(`/chat/generated-content/${contentId}`),

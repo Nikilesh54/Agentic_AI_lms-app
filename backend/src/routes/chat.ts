@@ -743,6 +743,260 @@ router.post('/generated-content', async (req: Request, res: Response) => {
   }
 });
 
+// Generate a dedicated practice quiz and save it as generated content
+router.post('/quiz-generate', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const userRole = req.user?.role;
+
+    if (!userId || !userRole) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const {
+      courseId,
+      topic = '',
+      questionCount = 5,
+      difficulty = 'mixed'
+    } = req.body;
+
+    const parsedCourseId = parseInt(courseId, 10);
+    const parsedQuestionCount = Math.min(Math.max(parseInt(questionCount, 10) || 5, 3), 12);
+
+    if (!parsedCourseId) {
+      return res.status(400).json({ error: 'Course ID is required' });
+    }
+
+    if (!['easy', 'medium', 'hard', 'mixed'].includes(difficulty)) {
+      return res.status(400).json({ error: 'Difficulty must be easy, medium, hard, or mixed' });
+    }
+
+    let accessQuery = '';
+    let accessParams: any[] = [userId, parsedCourseId];
+
+    if (userRole === 'student') {
+      accessQuery = 'SELECT id FROM enrollments WHERE user_id = $1 AND course_id = $2';
+    } else if (userRole === 'professor') {
+      accessQuery = 'SELECT id FROM course_instructors WHERE user_id = $1 AND course_id = $2';
+    } else {
+      accessQuery = 'SELECT id FROM courses WHERE id = $1';
+      accessParams = [parsedCourseId];
+    }
+
+    const accessResult = await pool.query(accessQuery, accessParams);
+    if (accessResult.rows.length === 0) {
+      return res.status(403).json({ error: 'You do not have access to this course' });
+    }
+
+    const courseResult = await pool.query(
+      'SELECT id, title, description FROM courses WHERE id = $1',
+      [parsedCourseId]
+    );
+
+    if (courseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+
+    const course = courseResult.rows[0];
+    const agentType = userRole === 'professor' ? 'instructor_assistant' :
+      userRole === 'root' ? 'admin_assistant' : 'course_assistant';
+
+    let agentResult = await pool.query(
+      'SELECT id FROM chat_agents WHERE agent_type = $1 AND is_active = true LIMIT 1',
+      [agentType]
+    );
+
+    if (agentResult.rows.length === 0) {
+      agentResult = await pool.query(
+        `INSERT INTO chat_agents (name, description, agent_type, system_prompt)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [
+          'Course Assistant',
+          'AI-powered course assistant for practice and review.',
+          agentType,
+          'Generate useful learning materials grounded in course context.'
+        ]
+      );
+    }
+
+    const agentId = agentResult.rows[0].id;
+    const sessionResult = await pool.query(
+      `INSERT INTO chat_sessions (student_id, agent_id, course_id, session_name)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [userId, agentId, parsedCourseId, `${course.title} Practice Quiz`]
+    );
+
+    const sessionId = sessionResult.rows[0].id;
+    const quizPrompt = `Create a practice quiz for the course "${course.title}".
+
+Topic focus: ${topic.trim() || 'the most important course concepts'}.
+Difficulty: ${difficulty}.
+Number of questions: ${parsedQuestionCount}.
+
+Format the quiz in Markdown with:
+1. A short title.
+2. Numbered questions.
+3. A mix of multiple-choice and short-answer questions when appropriate.
+4. An answer key with brief explanations.
+5. Source citations when course materials or web/context sources are used.`;
+
+    const historyResult = await pool.query(
+      `SELECT sender_type, content FROM chat_messages
+       WHERE session_id = $1 AND is_deleted = false
+       ORDER BY created_at ASC
+       LIMIT 10`,
+      [sessionId]
+    );
+
+    const conversationHistory: AIMessage[] = historyResult.rows.map(row => ({
+      role: (row.sender_type === 'student' ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: row.content
+    }));
+
+    const chatbot = new SubjectChatbotAgent();
+    const agentResponse = await chatbot.execute(
+      {
+        content: quizPrompt,
+        userId,
+        role: 'student',
+        sessionId,
+        timestamp: new Date()
+      },
+      {
+        conversationHistory,
+        courseMetadata: {
+          id: course.id,
+          title: course.title,
+          description: course.description
+        },
+        responseMode: 'strict'
+      }
+    );
+
+    const title = `${course.title} Practice Quiz`;
+    const savedContent = await pool.query(
+      `INSERT INTO agent_generated_content
+       (agent_id, student_id, course_id, session_id, content_type, title, content, content_metadata, is_saved)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+       RETURNING *`,
+      [
+        agentId,
+        userId,
+        parsedCourseId,
+        sessionId,
+        'quiz',
+        title,
+        agentResponse.content,
+        JSON.stringify({
+          topic: topic.trim() || null,
+          difficulty,
+          questionCount: parsedQuestionCount,
+          sourcesCount: agentResponse.sources?.length || 0,
+          generatedAt: new Date().toISOString()
+        })
+      ]
+    );
+
+    logUsage({
+      userId,
+      actionType: 'llm_request',
+      endpoint: '/api/chat/quiz-generate',
+      method: 'POST',
+      statusCode: 200,
+      metadata: {
+        courseId: parsedCourseId,
+        sessionId,
+        contentId: savedContent.rows[0].id,
+        questionCount: parsedQuestionCount,
+        difficulty,
+      },
+    });
+
+    res.status(201).json({
+      message: 'Practice quiz generated successfully',
+      quiz: {
+        ...savedContent.rows[0],
+        course_name: course.title,
+        agent_name: 'Course Assistant'
+      }
+    });
+  } catch (error) {
+    console.error('Error generating practice quiz:', error);
+    res.status(500).json({ error: 'Failed to generate practice quiz' });
+  }
+});
+
+// Update saved generated content metadata
+router.patch('/generated-content/:contentId', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const { contentId } = req.params;
+    const { title, contentType, isSaved } = req.body;
+
+    if (
+      title === undefined &&
+      contentType === undefined &&
+      isSaved === undefined
+    ) {
+      return res.status(400).json({ error: 'At least one field is required' });
+    }
+
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    if (title !== undefined) {
+      if (typeof title !== 'string' || title.trim().length === 0) {
+        return res.status(400).json({ error: 'Title cannot be empty' });
+      }
+      params.push(title.trim());
+      updates.push(`title = $${params.length}`);
+    }
+
+    if (contentType !== undefined) {
+      const validTypes = ['quiz', 'summary', 'study_plan', 'study_guide', 'practice_questions', 'explanation', 'notes', 'other'];
+      if (!validTypes.includes(contentType)) {
+        return res.status(400).json({ error: 'Invalid content type' });
+      }
+      params.push(contentType);
+      updates.push(`content_type = $${params.length}`);
+    }
+
+    if (isSaved !== undefined) {
+      params.push(Boolean(isSaved));
+      updates.push(`is_saved = $${params.length}`);
+    }
+
+    params.push(contentId, userId);
+
+    const result = await pool.query(
+      `UPDATE agent_generated_content
+       SET ${updates.join(', ')}
+       WHERE id = $${params.length - 1} AND student_id = $${params.length}
+       RETURNING *`,
+      params
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Content not found' });
+    }
+
+    res.json({
+      message: 'Content updated successfully',
+      generatedContent: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating generated content:', error);
+    res.status(500).json({ error: 'Failed to update content' });
+  }
+});
+
 // Delete generated content
 router.delete('/generated-content/:contentId', async (req: Request, res: Response) => {
   try {
