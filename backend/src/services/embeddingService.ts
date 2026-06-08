@@ -2,6 +2,7 @@ import { pipeline, FeatureExtractionPipeline } from '@xenova/transformers';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { SCORING } from '../config/constants';
 
 dotenv.config();
 
@@ -157,6 +158,16 @@ export async function generateEmbeddingCached(
   }
 
   return embedding;
+}
+
+/**
+ * Embed a *query* (or response sentence) for retrieval.
+ * BGE bge-base-en-v1.5 requires the asymmetric query prefix; documents stay raw.
+ * Uses the same cache, keyed on the prefixed text so it never collides with doc embeddings.
+ */
+export async function embedQuery(text: string, useCache: boolean = true): Promise<number[]> {
+  const prefixed = SCORING.BGE_QUERY_PREFIX + text;
+  return generateEmbeddingCached(prefixed, useCache);
 }
 
 /**
