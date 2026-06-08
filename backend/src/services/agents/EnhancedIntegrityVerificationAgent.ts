@@ -9,7 +9,10 @@ import fs from 'fs';
 import path from 'path';
 import { retryWithBackoff } from '../../utils/retry';
 import { AGENT_CONFIG } from '../../config/constants';
-import { TrustScoreCalculator, SourceVerificationResult } from './TrustScoreCalculator';
+import { TwoModelVerifier } from './TwoModelVerifier';
+import { reconcileJury } from '../scoring/juryReconciliation';
+import { computeValidationScore } from '../scoring/validationScore';
+import { SCORING } from '../../config/constants';
 
 // File-only logging (no console output)
 const LOG_PATH = path.join(__dirname, '../../../api-debug.log');
@@ -132,54 +135,37 @@ Output JSON format (respond with ONLY this JSON, nothing else):
             verifiedSources
           );
 
-          // Adjust system prompt based on attempt
-          const systemPrompt = attempt === 1
-            ? this.metadata.systemPrompt
-            : this.getSimplifiedSystemPrompt(attempt);
-
           logToFile('='.repeat(80));
           logToFile(`📤 VERIFICATION PROMPT (Attempt ${attempt}):`);
           logToFile('='.repeat(80));
           logToFile(verificationContext.substring(0, 500) + '...');
           logToFile('='.repeat(80));
 
-          // Step 3: Use a DIFFERENT AI provider (Groq) for independent cross-model verification
-          // This ensures the verification is truly independent — Gemini generated the response,
-          // Groq verifies it, preventing self-grading bias.
-          const messages: AIMessage[] = [
-            {
-              role: 'system',
-              content: systemPrompt || ''
-            },
-            {
-              role: 'user',
-              content: verificationContext
-            }
-          ];
+          // Step 3: Two-model Groq jury — two INDEPENDENT verifiers grade the same context,
+          // then reconcile into a single trust score (with disagreement signal).
+          const verifier = new TwoModelVerifier();
+          const verdicts = await verifier.verify(verificationContext);
+          const jury = reconcileJury(verdicts.a.score, verdicts.b.score);
 
-          const verificationService = this.getVerificationAIService();
-          const aiResponse = await verificationService.generateResponse(
-            messages,
-            { conversationHistory: messages },
-            systemPrompt,
-            { jsonMode: true }
-          );
+          logToFile(`Jury: ${verdicts.a.model}=${verdicts.a.score}, ${verdicts.b.model}=${verdicts.b.score} ` +
+            `-> trust=${jury.trust_score} disagree=${jury.verifiers_disagree}`);
 
-          logToFile('='.repeat(80));
-          logToFile(`📥 RAW GEMINI RESPONSE (Attempt ${attempt}):`);
-          logToFile('='.repeat(80));
-          logToFile(aiResponse.content.substring(0, 1000));
-          logToFile('='.repeat(80));
-
-          // Step 4: Parse verification result
-          verificationResult = this.parseVerificationResponse(
-            aiResponse.content,
-            verifiedSources
-          );
+          verificationResult = {
+            trust_score: jury.trust_score,
+            trust_level: this.determineTrustLevel(jury.trust_score),
+            reasoning: `Qwen: ${verdicts.a.reasoning} | Llama: ${verdicts.b.reasoning}`,
+            verification_details: [],
+            hallucinations_detected: [],
+            recommendations: jury.verifiers_disagree
+              ? 'The two verifiers disagreed; treat this answer with extra caution and confirm against sources.'
+              : 'Review the cited sources to confirm accuracy.',
+            evidence_summary: `Two-model jury (${verdicts.a.model} + ${verdicts.b.model}).`,
+          };
+          (verificationResult as any).verifiers_disagree = jury.verifiers_disagree;
 
           // Success! Break retry loop (score 0 is valid — means content contradicts source)
           if (verificationResult.trust_score !== null && verificationResult.trust_score !== undefined) {
-            logToFile(`✅ Verification succeeded on attempt ${attempt}`);
+            logToFile(`Jury verification succeeded on attempt ${attempt}`);
             break;
           }
 
@@ -213,6 +199,9 @@ Output JSON format (respond with ONLY this JSON, nothing else):
       verificationResult.trust_level = hybridResult.trust_level;
       verificationResult.reasoning = hybridResult.reasoning;
       verificationResult.evidence_summary = hybridResult.evidence_summary;
+      (verificationResult as any).validation_score = hybridResult.validation_score;
+      (verificationResult as any).validation_min_sentence_score = hybridResult.validation_min_sentence_score;
+      (verificationResult as any).low_validation_warning = hybridResult.low_validation_warning;
 
       // Step 6: Store detailed verification in database
       await this.storeTrustScore(messageId, verificationResult);
@@ -315,8 +304,8 @@ Respond with ONLY this JSON (no markdown, no extra text):
   }
 
   /**
-   * Apply hybrid scoring: combine deterministic signals with the AI verification score
-   * using the TrustScoreCalculator weighted formula.
+   * Compute the response↔documents validation score and apply the low-validation guard.
+   * Trust stays the jury verdict; validation is reported as a separate, decoupled signal.
    */
   private async applyHybridScoring(
     aiResult: EnhancedTrustScoreResult,
@@ -328,100 +317,36 @@ Respond with ONLY this JSON (no markdown, no extra text):
     trust_level: TrustLevel;
     reasoning: string;
     evidence_summary: string;
+    validation_score: number;
+    validation_min_sentence_score: number;
+    low_validation_warning: boolean;
   }> {
+    let validation = { validationScore: 50, minSentenceScore: 50, sentencesScored: 0 } as
+      { validationScore: number; minSentenceScore: number; sentencesScored: number };
     try {
-      logToFile('📊 Applying hybrid scoring...');
-
-      // Collect vector similarity scores for the chatbot response against course materials
-      const vectorScores = await this.getVectorSimilarityScores(chatbotResponse, courseId);
-
-      // Map verified sources to SourceVerificationResult format
-      const sourceResults: SourceVerificationResult[] = verifiedSources.map(vs => ({
-        sourceName: vs.claimed.source_name,
-        wasFoundInDB: vs.verification_status !== 'unverified',
-        wasContentRetrieved: vs.actual_content !== null && vs.actual_content.length > 0,
-        cosineSimilarity: null, // Will be populated from vector scores if available
-        verificationStatus: vs.verification_status
-      }));
-
-      // Try to get the Groq fact-check score if it exists already
-      let factCheckScore: number | null = null;
-      // Note: fact-check runs in parallel, so it may not be available yet
-      // The calculator handles null gracefully by using neutral (50)
-
-      const calculator = new TrustScoreCalculator();
-      const breakdown = calculator.calculate({
-        chatbotResponse,
-        claimedSources: sourceResults,
-        aiVerificationScore: aiResult.trust_score,
-        factCheckScore,
-        vectorSimilarityScores: vectorScores,
-        chatbotConfidence: 0.8 // Default, could be passed from chatbot response
-      });
-
-      logToFile(`📊 Hybrid Score: ${breakdown.finalScore} | Components: ` +
-        `similarity=${breakdown.components.semanticSimilarityScore}, ai=${breakdown.components.aiVerificationScore}, ` +
-        `factcheck=${breakdown.components.crossModelFactCheckScore}`);
-
-      return {
-        trust_score: breakdown.finalScore,
-        trust_level: breakdown.trustLevel,
-        reasoning: breakdown.reasoning,
-        evidence_summary: `Hybrid trust score: ${breakdown.finalScore}/100. ` +
-          `Components: Similarity=${breakdown.components.semanticSimilarityScore}, ` +
-          `AI Fact Check Verification=${breakdown.components.aiVerificationScore}.`
-      };
-    } catch (error: any) {
-      logToFile(`⚠️ Hybrid scoring failed, using AI-only score: ${error.message}`);
-      // If hybrid scoring fails, keep the AI-only result as-is
-      return {
-        trust_score: aiResult.trust_score,
-        trust_level: aiResult.trust_level,
-        reasoning: aiResult.reasoning,
-        evidence_summary: aiResult.evidence_summary
-      };
+      const v = await computeValidationScore(chatbotResponse, courseId);
+      validation = v;
+      logToFile(`Validation: score=${v.validationScore} min=${v.minSentenceScore} sentences=${v.sentencesScored}`);
+    } catch (err: any) {
+      logToFile(`Validation scoring failed (non-blocking): ${err.message}`);
     }
-  }
 
-  /**
-   * Get vector similarity scores for the chatbot response against course materials.
-   * Queries the embeddings table for the top cosine similarities.
-   */
-  private async getVectorSimilarityScores(responseText: string, courseId: number): Promise<number[]> {
-    try {
-      // Try to get similarity scores from recently used embeddings for this course
-      // We use a simpler approach: look up the chunks that were recently matched
-      const result = await pool.query(
-        `SELECT cme.chunk_text,
-                1 - (cme.embedding <=> (
-                  SELECT embedding FROM course_material_embeddings
-                  WHERE material_id IN (SELECT id FROM course_materials WHERE course_id = $1)
-                  LIMIT 1
-                )) as similarity
-         FROM course_material_embeddings cme
-         JOIN course_materials cm ON cme.material_id = cm.id
-         WHERE cm.course_id = $1
-         ORDER BY similarity DESC NULLS LAST
-         LIMIT 10`,
-        [courseId]
-      );
+    const lowValidationWarning =
+      validation.validationScore < SCORING.LOW_VALIDATION_GUARD && aiResult.trust_score >= 70;
 
-      if (result.rows.length === 0) {
-        logToFile('⚠️ No vector similarity scores available for this course');
-        return [];
-      }
+    const reasoning = lowValidationWarning
+      ? `${aiResult.reasoning} ⚠️ Low grounding in course materials (validation ${validation.validationScore}/100) — verify independently.`
+      : aiResult.reasoning;
 
-      const scores = result.rows
-        .map(row => parseFloat(row.similarity))
-        .filter(score => !isNaN(score) && score > 0);
-
-      logToFile(`📊 Retrieved ${scores.length} vector similarity scores (top: ${scores[0]?.toFixed(3) || 'N/A'})`);
-      return scores;
-    } catch (error: any) {
-      // pgvector query might fail if embeddings column doesn't exist or is empty
-      logToFile(`⚠️ Vector similarity query failed (non-blocking): ${error.message}`);
-      return [];
-    }
+    return {
+      trust_score: aiResult.trust_score, // trust stays the jury verdict — decoupled from validation
+      trust_level: aiResult.trust_level,
+      reasoning,
+      evidence_summary: `${aiResult.evidence_summary} Validation (response↔docs): ${validation.validationScore}/100.`,
+      validation_score: validation.validationScore,
+      validation_min_sentence_score: validation.minSentenceScore,
+      low_validation_warning: lowValidationWarning,
+    };
   }
 
   /**
@@ -1167,8 +1092,12 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
         trust_level,
         verification_reasoning,
         source_verification_details,
-        conflicts_detected
-      ) VALUES ($1, $2, $3, $4, $5, $6)
+        conflicts_detected,
+        validation_score,
+        validation_min_sentence_score,
+        verifiers_disagree,
+        low_validation_warning
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (message_id)
       DO UPDATE SET
         trust_score = EXCLUDED.trust_score,
@@ -1176,6 +1105,10 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
         verification_reasoning = EXCLUDED.verification_reasoning,
         source_verification_details = EXCLUDED.source_verification_details,
         conflicts_detected = EXCLUDED.conflicts_detected,
+        validation_score = EXCLUDED.validation_score,
+        validation_min_sentence_score = EXCLUDED.validation_min_sentence_score,
+        verifiers_disagree = EXCLUDED.verifiers_disagree,
+        low_validation_warning = EXCLUDED.low_validation_warning,
         verification_timestamp = CURRENT_TIMESTAMP
     `;
 
@@ -1188,7 +1121,11 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
         verification_details: verification.verification_details,
         evidence_summary: verification.evidence_summary
       }),
-      verification.hallucinations_detected
+      verification.hallucinations_detected,
+      (verification as any).validation_score ?? null,
+      (verification as any).validation_min_sentence_score ?? null,
+      (verification as any).verifiers_disagree ?? false,
+      (verification as any).low_validation_warning ?? false
     ]);
   }
 
