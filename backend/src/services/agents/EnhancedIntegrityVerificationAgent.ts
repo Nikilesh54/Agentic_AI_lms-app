@@ -153,7 +153,7 @@ Output JSON format (respond with ONLY this JSON, nothing else):
           verificationResult = {
             trust_score: jury.trust_score,
             trust_level: this.determineTrustLevel(jury.trust_score),
-            reasoning: `Qwen: ${verdicts.a.reasoning} | Llama: ${verdicts.b.reasoning}`,
+            reasoning: `${verdicts.a.model}: ${verdicts.a.reasoning} | ${verdicts.b.model}: ${verdicts.b.reasoning}`,
             verification_details: [],
             hallucinations_detected: [],
             recommendations: jury.verifiers_disagree
@@ -161,7 +161,7 @@ Output JSON format (respond with ONLY this JSON, nothing else):
               : 'Review the cited sources to confirm accuracy.',
             evidence_summary: `Two-model jury (${verdicts.a.model} + ${verdicts.b.model}).`,
           };
-          (verificationResult as any).verifiers_disagree = jury.verifiers_disagree;
+          verificationResult.verifiers_disagree = jury.verifiers_disagree;
 
           // Success! Break retry loop (score 0 is valid — means content contradicts source)
           if (verificationResult.trust_score !== null && verificationResult.trust_score !== undefined) {
@@ -187,8 +187,8 @@ Output JSON format (respond with ONLY this JSON, nothing else):
         verificationResult = this.createFallbackResult(verifiedSources);
       }
 
-      // Step 5: HYBRID SCORING — combine deterministic + AI signals
-      const hybridResult = await this.applyHybridScoring(
+      // Compute the decoupled validation score + low-validation guard
+      const hybridResult = await this.applyValidationScoring(
         verificationResult,
         verifiedSources,
         chatbotResponse,
@@ -199,9 +199,9 @@ Output JSON format (respond with ONLY this JSON, nothing else):
       verificationResult.trust_level = hybridResult.trust_level;
       verificationResult.reasoning = hybridResult.reasoning;
       verificationResult.evidence_summary = hybridResult.evidence_summary;
-      (verificationResult as any).validation_score = hybridResult.validation_score;
-      (verificationResult as any).validation_min_sentence_score = hybridResult.validation_min_sentence_score;
-      (verificationResult as any).low_validation_warning = hybridResult.low_validation_warning;
+      verificationResult.validation_score = hybridResult.validation_score;
+      verificationResult.validation_min_sentence_score = hybridResult.validation_min_sentence_score;
+      verificationResult.low_validation_warning = hybridResult.low_validation_warning;
 
       // Step 6: Store detailed verification in database
       await this.storeTrustScore(messageId, verificationResult);
@@ -307,7 +307,7 @@ Respond with ONLY this JSON (no markdown, no extra text):
    * Compute the response↔documents validation score and apply the low-validation guard.
    * Trust stays the jury verdict; validation is reported as a separate, decoupled signal.
    */
-  private async applyHybridScoring(
+  private async applyValidationScoring(
     aiResult: EnhancedTrustScoreResult,
     verifiedSources: VerifiedSource[],
     chatbotResponse: string,
@@ -365,7 +365,8 @@ Respond with ONLY this JSON (no markdown, no extra text):
       recommendations: verifiedCount > 0
         ? 'Sources were located but detailed verification is incomplete. Review the cited sources to confirm accuracy.'
         : 'Unable to verify sources. Please manually check the information or consult your professor.',
-      evidence_summary: `${verifiedCount}/${verifiedSources.length} sources independently verified.`
+      evidence_summary: `${verifiedCount}/${verifiedSources.length} sources independently verified.`,
+      verifiers_disagree: false,
     };
   }
 
@@ -1122,10 +1123,10 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
         evidence_summary: verification.evidence_summary
       }),
       verification.hallucinations_detected,
-      (verification as any).validation_score ?? null,
-      (verification as any).validation_min_sentence_score ?? null,
-      (verification as any).verifiers_disagree ?? false,
-      (verification as any).low_validation_warning ?? false
+      verification.validation_score ?? null,
+      verification.validation_min_sentence_score ?? null,
+      verification.verifiers_disagree ?? false,
+      verification.low_validation_warning ?? false
     ]);
   }
 
@@ -1277,6 +1278,10 @@ export interface EnhancedTrustScoreResult {
   hallucinations_detected: string[];
   recommendations: string;
   evidence_summary: string;
+  validation_score?: number;
+  validation_min_sentence_score?: number;
+  verifiers_disagree?: boolean;
+  low_validation_warning?: boolean;
 }
 
 export interface VerificationDetail {
