@@ -42,6 +42,12 @@ export async function runMigrations(): Promise<void> {
     await client.query(foldersMigrationSQL);
     console.log('✓ Material Folders schema migration completed successfully');
 
+    // Migration 6: Validation Score (separate validation score + verifier-disagreement flag)
+    const validationScoreMigrationPath = path.join(__dirname, 'validation-score-schema.sql');
+    const validationScoreMigrationSQL = fs.readFileSync(validationScoreMigrationPath, 'utf8');
+    await client.query(validationScoreMigrationSQL);
+    console.log('✓ Validation Score schema migration completed successfully');
+
   } catch (error) {
     console.error('Error running migrations:', error);
     throw error;
