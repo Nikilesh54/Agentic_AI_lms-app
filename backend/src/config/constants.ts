@@ -318,6 +318,9 @@ export const SCORING = {
 
   /** Sentences shorter than this (chars) are ignored for validation */
   MIN_SENTENCE_CHARS: 25,
+
+  /** Neutral validation score when there are no sentences to ground (don't penalize) */
+  NEUTRAL_VALIDATION_SCORE: 50,
 } as const;
 
 // =====================================================

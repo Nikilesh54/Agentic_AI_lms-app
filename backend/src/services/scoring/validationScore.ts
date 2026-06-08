@@ -38,13 +38,18 @@ export async function computeValidationScore(
   const sentences = splitIntoSentences(responseText);
 
   if (sentences.length === 0) {
-    return { validationScore: 50, minSentenceScore: 50, perSentenceCosines: [], sentencesScored: 0 };
+    return {
+      validationScore: SCORING.NEUTRAL_VALIDATION_SCORE,
+      minSentenceScore: SCORING.NEUTRAL_VALIDATION_SCORE,
+      perSentenceCosines: [],
+      sentencesScored: 0,
+    };
   }
 
   const perSentenceCosines: number[] = [];
 
   for (const sentence of sentences) {
-    const embedding = await embedQuery(sentence, true);
+    const embedding = await embedQuery(sentence, true); // (with caching)
     const result = await pool.query(
       `SELECT MAX(1 - (cme.embedding <=> $1::vector)) AS best
          FROM course_material_embeddings cme
