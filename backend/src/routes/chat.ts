@@ -975,9 +975,19 @@ router.get('/messages/:messageId/trust-score', async (req: Request, res: Respons
       return res.status(404).json({ error: 'Trust score not yet calculated' });
     }
 
+    const trustRow = trustScoreResult.rows[0];
+
     res.json({
       message: 'Trust score retrieved successfully',
-      trustScore: trustScoreResult.rows[0]
+      trustScore: {
+        ...trustRow,
+        // New validation / verifier-disagreement fields (nullable for older messages).
+        // Snake_case to match the existing sibling keys (trust_score, trust_level, ...)
+        validation_score: trustRow.validation_score ?? null,
+        validation_min_sentence_score: trustRow.validation_min_sentence_score ?? null,
+        verifiers_disagree: trustRow.verifiers_disagree ?? null,
+        low_validation_warning: trustRow.low_validation_warning ?? null
+      }
     });
   } catch (error) {
     console.error('Error fetching trust score:', error);
