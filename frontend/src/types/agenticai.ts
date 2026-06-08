@@ -43,6 +43,11 @@ export interface TrustScore {
   conflicts_detected: string[];
   verification_timestamp: string;
   verified_by: string;
+  // Validation (independent verifier) fields — optional; null for older messages
+  validation_score?: number | null;
+  validation_min_sentence_score?: number | null;
+  verifiers_disagree?: boolean;
+  low_validation_warning?: boolean;
 }
 
 // =====================================================

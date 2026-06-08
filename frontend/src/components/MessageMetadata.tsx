@@ -172,6 +172,20 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
           </button>
         ) : null}
 
+        {/* Validation Badge (independent verifier) — only when a validation score exists */}
+        {!loadingTrust && trustScore && trustScore.validation_score != null && (
+          <span
+            className="metadata-badge validation-badge"
+            style={{ borderColor: getTrustScoreColor(trustScore.validation_score) }}
+            title="Independent validation score"
+          >
+            <span style={{ color: getTrustScoreColor(trustScore.validation_score) }}>
+              {trustScore.validation_score >= 70 ? 'V' : trustScore.validation_score >= 50 ? '!' : 'X'}
+            </span>
+            Validation {trustScore.validation_score}
+          </span>
+        )}
+
         {/* Emotional Indicator Badge */}
         {emotionalFilter && emotionalFilter.applied && (
           <span
@@ -203,6 +217,22 @@ const MessageMetadata: React.FC<MessageMetadataProps> = ({ messageId, metadata }
           </button>
         ) : null}
       </div>
+
+      {/* Validation warnings — only when trust score is loaded and present */}
+      {!loadingTrust && trustScore && (trustScore.verifiers_disagree || trustScore.low_validation_warning) && (
+        <div className="metadata-validation-warnings">
+          {trustScore.verifiers_disagree && (
+            <span className="metadata-warning" style={{ color: '#f97316' }} title="The independent verifiers did not agree">
+              ! Verifiers disagreed — extra caution
+            </span>
+          )}
+          {trustScore.low_validation_warning && (
+            <span className="metadata-warning" style={{ color: '#ef4444' }} title="Answer weakly grounded in course materials">
+              ! Answer weakly grounded in course materials
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Sources Dropdown */}
       {showSources && sources.length > 0 && (
