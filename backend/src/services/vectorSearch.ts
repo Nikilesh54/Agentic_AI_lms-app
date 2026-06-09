@@ -1,5 +1,5 @@
 import { pool } from '../config/database';
-import { generateEmbeddingCached, embeddingToPostgresVector } from './embeddingService';
+import { embedQuery, embeddingToPostgresVector } from './embeddingService';
 
 /**
  * Search result interface with material information and similarity score
@@ -65,7 +65,7 @@ export async function searchCourseMaterials(
 
     // Step 1: Generate embedding for the query (with caching)
     console.log(`Generating embedding for query: "${query.substring(0, 50)}..."`);
-    const queryEmbedding = await generateEmbeddingCached(query, true);
+    const queryEmbedding = await embedQuery(query, true);
 
     // Step 2: Perform vector similarity search using pgvector
     // Using cosine distance operator (<=> ) where lower distance = higher similarity
@@ -193,7 +193,7 @@ export async function searchSpecificMaterials(
     }
 
     // Generate embedding for the query
-    const queryEmbedding = await generateEmbeddingCached(query, true);
+    const queryEmbedding = await embedQuery(query, true);
 
     // Search within specific materials only
     const searchQuery = `

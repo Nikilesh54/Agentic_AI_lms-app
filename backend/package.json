@@ -7,7 +7,8 @@
     "dev": "nodemon src/index.ts",
     "build": "tsc && npm run copy-files",
     "copy-files": "node -e \"const fs=require('fs');const path=require('path');[{src:'src/db/migrations',dest:'dist/db/migrations'},{src:'migrations',dest:'dist/migrations'}].forEach(({src,dest})=>{if(fs.existsSync(src)){fs.mkdirSync(dest,{recursive:true});fs.readdirSync(src).forEach(file=>{if(file.endsWith('.sql')){fs.copyFileSync(path.join(src,file),path.join(dest,file));console.log('Copied:',file);}});}});\"",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -47,6 +48,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/cheerio": "^0.22.35"
+    "@types/cheerio": "^0.22.35",
+    "vitest": "^2.1.0"
   }
 }

@@ -288,6 +288,42 @@ export const COVE_CONFIG = {
 } as const;
 
 // =====================================================
+// SCORING CONFIGURATION (Validation + Trust)
+// =====================================================
+export const SCORING = {
+  /** BGE retrieval query prefix — REQUIRED for bge-base-en-v1.5 queries. Documents stay raw. */
+  BGE_QUERY_PREFIX: 'Represent this sentence for searching relevant passages: ',
+
+  /** Two-model Groq jury for the trust score */
+  TRUST_MODEL_A: process.env.TRUST_MODEL_A || 'qwen/qwen3-32b',
+  TRUST_MODEL_B: process.env.TRUST_MODEL_B || 'llama-3.3-70b-versatile',
+
+  /** If |scoreA - scoreB| > this, verifiers "disagree": take min + flag */
+  JURY_DISAGREEMENT_THRESHOLD: 30,
+
+  /** Calibration anchors: raw cosine -> calibrated 0-100. Piecewise-linear between anchors. */
+  COSINE_ANCHORS: [
+    { cosine: 0.30, score: 10 },
+    { cosine: 0.50, score: 50 },
+    { cosine: 0.65, score: 75 },
+    { cosine: 0.75, score: 90 },
+    { cosine: 0.85, score: 100 },
+  ] as Array<{ cosine: number; score: number }>,
+
+  /** Validation below this caps/warns on a high trust score (the low-validation guard) */
+  LOW_VALIDATION_GUARD: 40,
+
+  /** Max sentences from a response to embed for validation (cost cap) */
+  MAX_RESPONSE_SENTENCES: 25,
+
+  /** Sentences shorter than this (chars) are ignored for validation */
+  MIN_SENTENCE_CHARS: 25,
+
+  /** Neutral validation score when there are no sentences to ground (don't penalize) */
+  NEUTRAL_VALIDATION_SCORE: 50,
+} as const;
+
+// =====================================================
 // HELPER FUNCTIONS
 // =====================================================
 

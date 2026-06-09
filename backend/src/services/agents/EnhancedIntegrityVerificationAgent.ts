@@ -1,7 +1,5 @@
 import { SimpleBaseAgent, AgentMetadata, AgentMessage, AgentResponse, ResponseSource } from './newAgentTypes';
-import { AIContext, AIMessage, AIServiceConfig, IAIService } from '../ai/types';
-import { AIServiceFactory, getAIService } from '../ai/AIServiceFactory';
-import { getGroqRateLimitManager } from '../ai/GroqRateLimitManager';
+import { AIContext, AIMessage } from '../ai/types';
 import { pool } from '../../config/database';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -9,7 +7,10 @@ import fs from 'fs';
 import path from 'path';
 import { retryWithBackoff } from '../../utils/retry';
 import { AGENT_CONFIG } from '../../config/constants';
-import { TrustScoreCalculator, SourceVerificationResult } from './TrustScoreCalculator';
+import { TwoModelVerifier } from './TwoModelVerifier';
+import { reconcileJury } from '../scoring/juryReconciliation';
+import { computeValidationScore } from '../scoring/validationScore';
+import { SCORING } from '../../config/constants';
 
 // File-only logging (no console output)
 const LOG_PATH = path.join(__dirname, '../../../api-debug.log');
@@ -132,54 +133,37 @@ Output JSON format (respond with ONLY this JSON, nothing else):
             verifiedSources
           );
 
-          // Adjust system prompt based on attempt
-          const systemPrompt = attempt === 1
-            ? this.metadata.systemPrompt
-            : this.getSimplifiedSystemPrompt(attempt);
-
           logToFile('='.repeat(80));
           logToFile(`📤 VERIFICATION PROMPT (Attempt ${attempt}):`);
           logToFile('='.repeat(80));
           logToFile(verificationContext.substring(0, 500) + '...');
           logToFile('='.repeat(80));
 
-          // Step 3: Use a DIFFERENT AI provider (Groq) for independent cross-model verification
-          // This ensures the verification is truly independent — Gemini generated the response,
-          // Groq verifies it, preventing self-grading bias.
-          const messages: AIMessage[] = [
-            {
-              role: 'system',
-              content: systemPrompt || ''
-            },
-            {
-              role: 'user',
-              content: verificationContext
-            }
-          ];
+          // Step 3: Two-model Groq jury — two INDEPENDENT verifiers grade the same context,
+          // then reconcile into a single trust score (with disagreement signal).
+          const verifier = new TwoModelVerifier();
+          const verdicts = await verifier.verify(verificationContext);
+          const jury = reconcileJury(verdicts.a.score, verdicts.b.score);
 
-          const verificationService = this.getVerificationAIService();
-          const aiResponse = await verificationService.generateResponse(
-            messages,
-            { conversationHistory: messages },
-            systemPrompt,
-            { jsonMode: true }
-          );
+          logToFile(`Jury: ${verdicts.a.model}=${verdicts.a.score}, ${verdicts.b.model}=${verdicts.b.score} ` +
+            `-> trust=${jury.trust_score} disagree=${jury.verifiers_disagree}`);
 
-          logToFile('='.repeat(80));
-          logToFile(`📥 RAW GEMINI RESPONSE (Attempt ${attempt}):`);
-          logToFile('='.repeat(80));
-          logToFile(aiResponse.content.substring(0, 1000));
-          logToFile('='.repeat(80));
-
-          // Step 4: Parse verification result
-          verificationResult = this.parseVerificationResponse(
-            aiResponse.content,
-            verifiedSources
-          );
+          verificationResult = {
+            trust_score: jury.trust_score,
+            trust_level: this.determineTrustLevel(jury.trust_score),
+            reasoning: `${verdicts.a.model}: ${verdicts.a.reasoning} | ${verdicts.b.model}: ${verdicts.b.reasoning}`,
+            verification_details: [],
+            hallucinations_detected: [],
+            recommendations: jury.verifiers_disagree
+              ? 'The two verifiers disagreed; treat this answer with extra caution and confirm against sources.'
+              : 'Review the cited sources to confirm accuracy.',
+            evidence_summary: `Two-model jury (${verdicts.a.model} + ${verdicts.b.model}).`,
+          };
+          verificationResult.verifiers_disagree = jury.verifiers_disagree;
 
           // Success! Break retry loop (score 0 is valid — means content contradicts source)
           if (verificationResult.trust_score !== null && verificationResult.trust_score !== undefined) {
-            logToFile(`✅ Verification succeeded on attempt ${attempt}`);
+            logToFile(`Jury verification succeeded on attempt ${attempt}`);
             break;
           }
 
@@ -201,8 +185,8 @@ Output JSON format (respond with ONLY this JSON, nothing else):
         verificationResult = this.createFallbackResult(verifiedSources);
       }
 
-      // Step 5: HYBRID SCORING — combine deterministic + AI signals
-      const hybridResult = await this.applyHybridScoring(
+      // Compute the decoupled validation score + low-validation guard
+      const hybridResult = await this.applyValidationScoring(
         verificationResult,
         verifiedSources,
         chatbotResponse,
@@ -213,6 +197,9 @@ Output JSON format (respond with ONLY this JSON, nothing else):
       verificationResult.trust_level = hybridResult.trust_level;
       verificationResult.reasoning = hybridResult.reasoning;
       verificationResult.evidence_summary = hybridResult.evidence_summary;
+      verificationResult.validation_score = hybridResult.validation_score;
+      verificationResult.validation_min_sentence_score = hybridResult.validation_min_sentence_score;
+      verificationResult.low_validation_warning = hybridResult.low_validation_warning;
 
       // Step 6: Store detailed verification in database
       await this.storeTrustScore(messageId, verificationResult);
@@ -258,67 +245,10 @@ Output JSON format (respond with ONLY this JSON, nothing else):
   }
 
   /**
-   * Get simplified system prompt for retry attempts
+   * Compute the response↔documents validation score and apply the low-validation guard.
+   * Trust stays the jury verdict; validation is reported as a separate, decoupled signal.
    */
-  private getSimplifiedSystemPrompt(attempt: number): string {
-    if (attempt === 2) {
-      return `You are a verification agent. Compare the chatbot's claims against the source content provided.
-
-Respond with ONLY this JSON (no markdown, no extra text):
-{
-  "trust_score": <number 0-100>,
-  "trust_level": "<highest|high|medium|lower|low>",
-  "verification_details": [],
-  "hallucinations_detected": [],
-  "reasoning": "<brief assessment>",
-  "recommendations": "<brief advice>"
-}`;
-    }
-
-    // Attempt 3: Absolute minimum
-    return `Compare the chatbot claims to the source content. Respond with ONLY a JSON object: {"trust_score": <number 0-100>, "trust_level": "<highest|high|medium|lower|low>", "verification_details": [], "hallucinations_detected": [], "reasoning": "<brief text>", "recommendations": "<brief text>"}`;
-  }
-
-  /**
-   * Get a DEDICATED AI service for verification — uses Groq (different from Gemini chatbot)
-   * so the verification is truly independent cross-model checking.
-   * Falls back to default AI service if Groq API key is not available.
-   */
-  private getVerificationAIService(): IAIService {
-    const groqApiKey = process.env.GROQ_API_KEY;
-
-    if (groqApiKey) {
-      // Check rate limit before using Groq
-      const rateLimiter = getGroqRateLimitManager();
-      if (rateLimiter.canProceed()) {
-        rateLimiter.record();
-
-        const groqConfig: AIServiceConfig = {
-          provider: 'groq',
-          apiKey: groqApiKey,
-          model: process.env.GROQ_EVAL_MODEL || process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
-          temperature: 0.2,  // Low temperature for consistent, factual verification
-          maxTokens: 2048
-        };
-
-        logToFile('🔄 Using Groq (LLaMA) for independent cross-model verification');
-        return AIServiceFactory.createService(groqConfig);
-      } else {
-        logToFile('⚠️ Groq rate limit reached, falling back to default AI provider for verification');
-      }
-    } else {
-      logToFile('⚠️ GROQ_API_KEY not set, falling back to default AI provider for verification');
-    }
-
-    // Fallback: use default provider (Gemini)
-    return getAIService();
-  }
-
-  /**
-   * Apply hybrid scoring: combine deterministic signals with the AI verification score
-   * using the TrustScoreCalculator weighted formula.
-   */
-  private async applyHybridScoring(
+  private async applyValidationScoring(
     aiResult: EnhancedTrustScoreResult,
     verifiedSources: VerifiedSource[],
     chatbotResponse: string,
@@ -328,100 +258,36 @@ Respond with ONLY this JSON (no markdown, no extra text):
     trust_level: TrustLevel;
     reasoning: string;
     evidence_summary: string;
+    validation_score: number;
+    validation_min_sentence_score: number;
+    low_validation_warning: boolean;
   }> {
+    let validation = { validationScore: 50, minSentenceScore: 50, sentencesScored: 0 } as
+      { validationScore: number; minSentenceScore: number; sentencesScored: number };
     try {
-      logToFile('📊 Applying hybrid scoring...');
-
-      // Collect vector similarity scores for the chatbot response against course materials
-      const vectorScores = await this.getVectorSimilarityScores(chatbotResponse, courseId);
-
-      // Map verified sources to SourceVerificationResult format
-      const sourceResults: SourceVerificationResult[] = verifiedSources.map(vs => ({
-        sourceName: vs.claimed.source_name,
-        wasFoundInDB: vs.verification_status !== 'unverified',
-        wasContentRetrieved: vs.actual_content !== null && vs.actual_content.length > 0,
-        cosineSimilarity: null, // Will be populated from vector scores if available
-        verificationStatus: vs.verification_status
-      }));
-
-      // Try to get the Groq fact-check score if it exists already
-      let factCheckScore: number | null = null;
-      // Note: fact-check runs in parallel, so it may not be available yet
-      // The calculator handles null gracefully by using neutral (50)
-
-      const calculator = new TrustScoreCalculator();
-      const breakdown = calculator.calculate({
-        chatbotResponse,
-        claimedSources: sourceResults,
-        aiVerificationScore: aiResult.trust_score,
-        factCheckScore,
-        vectorSimilarityScores: vectorScores,
-        chatbotConfidence: 0.8 // Default, could be passed from chatbot response
-      });
-
-      logToFile(`📊 Hybrid Score: ${breakdown.finalScore} | Components: ` +
-        `similarity=${breakdown.components.semanticSimilarityScore}, ai=${breakdown.components.aiVerificationScore}, ` +
-        `factcheck=${breakdown.components.crossModelFactCheckScore}`);
-
-      return {
-        trust_score: breakdown.finalScore,
-        trust_level: breakdown.trustLevel,
-        reasoning: breakdown.reasoning,
-        evidence_summary: `Hybrid trust score: ${breakdown.finalScore}/100. ` +
-          `Components: Similarity=${breakdown.components.semanticSimilarityScore}, ` +
-          `AI Fact Check Verification=${breakdown.components.aiVerificationScore}.`
-      };
-    } catch (error: any) {
-      logToFile(`⚠️ Hybrid scoring failed, using AI-only score: ${error.message}`);
-      // If hybrid scoring fails, keep the AI-only result as-is
-      return {
-        trust_score: aiResult.trust_score,
-        trust_level: aiResult.trust_level,
-        reasoning: aiResult.reasoning,
-        evidence_summary: aiResult.evidence_summary
-      };
+      const v = await computeValidationScore(chatbotResponse, courseId);
+      validation = v;
+      logToFile(`Validation: score=${v.validationScore} min=${v.minSentenceScore} sentences=${v.sentencesScored}`);
+    } catch (err: any) {
+      logToFile(`Validation scoring failed (non-blocking): ${err.message}`);
     }
-  }
 
-  /**
-   * Get vector similarity scores for the chatbot response against course materials.
-   * Queries the embeddings table for the top cosine similarities.
-   */
-  private async getVectorSimilarityScores(responseText: string, courseId: number): Promise<number[]> {
-    try {
-      // Try to get similarity scores from recently used embeddings for this course
-      // We use a simpler approach: look up the chunks that were recently matched
-      const result = await pool.query(
-        `SELECT cme.chunk_text,
-                1 - (cme.embedding <=> (
-                  SELECT embedding FROM course_material_embeddings
-                  WHERE material_id IN (SELECT id FROM course_materials WHERE course_id = $1)
-                  LIMIT 1
-                )) as similarity
-         FROM course_material_embeddings cme
-         JOIN course_materials cm ON cme.material_id = cm.id
-         WHERE cm.course_id = $1
-         ORDER BY similarity DESC NULLS LAST
-         LIMIT 10`,
-        [courseId]
-      );
+    const lowValidationWarning =
+      validation.validationScore < SCORING.LOW_VALIDATION_GUARD && aiResult.trust_score >= 70;
 
-      if (result.rows.length === 0) {
-        logToFile('⚠️ No vector similarity scores available for this course');
-        return [];
-      }
+    const reasoning = lowValidationWarning
+      ? `${aiResult.reasoning} ⚠️ Low grounding in course materials (validation ${validation.validationScore}/100) — verify independently.`
+      : aiResult.reasoning;
 
-      const scores = result.rows
-        .map(row => parseFloat(row.similarity))
-        .filter(score => !isNaN(score) && score > 0);
-
-      logToFile(`📊 Retrieved ${scores.length} vector similarity scores (top: ${scores[0]?.toFixed(3) || 'N/A'})`);
-      return scores;
-    } catch (error: any) {
-      // pgvector query might fail if embeddings column doesn't exist or is empty
-      logToFile(`⚠️ Vector similarity query failed (non-blocking): ${error.message}`);
-      return [];
-    }
+    return {
+      trust_score: aiResult.trust_score, // trust stays the jury verdict — decoupled from validation
+      trust_level: aiResult.trust_level,
+      reasoning,
+      evidence_summary: `${aiResult.evidence_summary} Validation (response↔docs): ${validation.validationScore}/100.`,
+      validation_score: validation.validationScore,
+      validation_min_sentence_score: validation.minSentenceScore,
+      low_validation_warning: lowValidationWarning,
+    };
   }
 
   /**
@@ -440,7 +306,8 @@ Respond with ONLY this JSON (no markdown, no extra text):
       recommendations: verifiedCount > 0
         ? 'Sources were located but detailed verification is incomplete. Review the cited sources to confirm accuracy.'
         : 'Unable to verify sources. Please manually check the information or consult your professor.',
-      evidence_summary: `${verifiedCount}/${verifiedSources.length} sources independently verified.`
+      evidence_summary: `${verifiedCount}/${verifiedSources.length} sources independently verified.`,
+      verifiers_disagree: false,
     };
   }
 
@@ -833,316 +700,6 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
   }
 
   /**
-   * Parse AI verification response with robust error handling and fallback strategies
-   */
-  private parseVerificationResponse(
-    responseContent: string,
-    verifiedSources: VerifiedSource[]
-  ): EnhancedTrustScoreResult {
-    logToFile('🔄 Starting robust JSON parsing...');
-
-    // Strategy 1: Try direct JSON parse (Gemini returning pure JSON)
-    try {
-      const result = this.tryDirectJsonParse(responseContent, verifiedSources);
-      if (result) {
-        logToFile('✅ Strategy 1 (Direct JSON) succeeded');
-        return result;
-      }
-    } catch (error) {
-      logToFile(`⚠️ Strategy 1 failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    // Strategy 2: Extract JSON from markdown code blocks
-    try {
-      const result = this.tryMarkdownJsonExtraction(responseContent, verifiedSources);
-      if (result) {
-        logToFile('✅ Strategy 2 (Markdown extraction) succeeded');
-        return result;
-      }
-    } catch (error) {
-      logToFile(`⚠️ Strategy 2 failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    // Strategy 3: Find and extract any JSON object in the response
-    try {
-      const result = this.tryFuzzyJsonExtraction(responseContent, verifiedSources);
-      if (result) {
-        logToFile('✅ Strategy 3 (Fuzzy extraction) succeeded');
-        return result;
-      }
-    } catch (error) {
-      logToFile(`⚠️ Strategy 3 failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    // Strategy 4: Try to extract trust_score even if full JSON fails
-    try {
-      const partialResult = this.tryPartialExtraction(responseContent, verifiedSources);
-      if (partialResult) {
-        logToFile('✅ Strategy 4 (Partial extraction) succeeded');
-        return partialResult;
-      }
-    } catch (error) {
-      logToFile(`⚠️ Strategy 4 failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    // Strategy 5: Heuristic analysis as last resort
-    logToFile('⚠️ All parsing strategies failed, using heuristic analysis');
-    return this.heuristicAnalysis(responseContent, verifiedSources);
-  }
-
-  /**
-   * Strategy 1: Try to parse response as pure JSON
-   */
-  private tryDirectJsonParse(
-    content: string,
-    verifiedSources: VerifiedSource[]
-  ): EnhancedTrustScoreResult | null {
-    try {
-      const trimmed = content.trim();
-      if (!trimmed.startsWith('{')) {
-        return null;
-      }
-
-      const parsed = JSON.parse(trimmed);
-      return this.buildTrustScoreResult(parsed, verifiedSources);
-    } catch (error) {
-      return null;
-    }
-  }
-
-  /**
-   * Strategy 2: Extract JSON from markdown code blocks
-   */
-  private tryMarkdownJsonExtraction(
-    content: string,
-    verifiedSources: VerifiedSource[]
-  ): EnhancedTrustScoreResult | null {
-    // Try different markdown patterns
-    const patterns = [
-      /```json\s*\n([\s\S]*?)\n```/,
-      /```\s*\n([\s\S]*?)\n```/,
-      /```json([\s\S]*?)```/,
-    ];
-
-    for (const pattern of patterns) {
-      const match = content.match(pattern);
-      if (match) {
-        try {
-          const jsonText = match[1].trim();
-          const parsed = JSON.parse(jsonText);
-          return this.buildTrustScoreResult(parsed, verifiedSources);
-        } catch (error) {
-          continue;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Strategy 3: Fuzzy extraction - find any JSON object
-   */
-  private tryFuzzyJsonExtraction(
-    content: string,
-    verifiedSources: VerifiedSource[]
-  ): EnhancedTrustScoreResult | null {
-    // Find the first { and try to extract a complete JSON object
-    const startIdx = content.indexOf('{');
-    if (startIdx === -1) {
-      return null;
-    }
-
-    // Try to find matching closing brace
-    let braceCount = 0;
-    let inString = false;
-    let escapeNext = false;
-
-    for (let i = startIdx; i < content.length; i++) {
-      const char = content[i];
-
-      if (escapeNext) {
-        escapeNext = false;
-        continue;
-      }
-
-      if (char === '\\') {
-        escapeNext = true;
-        continue;
-      }
-
-      if (char === '"' && !escapeNext) {
-        inString = !inString;
-        continue;
-      }
-
-      if (inString) {
-        continue;
-      }
-
-      if (char === '{') {
-        braceCount++;
-      } else if (char === '}') {
-        braceCount--;
-        if (braceCount === 0) {
-          // Found complete JSON object
-          const jsonText = content.substring(startIdx, i + 1);
-          try {
-            const parsed = JSON.parse(jsonText);
-            return this.buildTrustScoreResult(parsed, verifiedSources);
-          } catch (error) {
-            return null;
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Strategy 4: Extract partial information even if JSON is incomplete
-   */
-  private tryPartialExtraction(
-    content: string,
-    verifiedSources: VerifiedSource[]
-  ): EnhancedTrustScoreResult | null {
-    try {
-      // Try to extract key fields using regex
-      const trustScoreMatch = content.match(/"trust_score"\s*:\s*(\d+)/);
-      const trustLevelMatch = content.match(/"trust_level"\s*:\s*"([^"]+)"/);
-      const reasoningMatch = content.match(/"reasoning"\s*:\s*"([^"]+)"/);
-
-      if (trustScoreMatch) {
-        const trustScore = parseInt(trustScoreMatch[1]);
-        const trustLevel = trustLevelMatch ? trustLevelMatch[1] : this.determineTrustLevel(trustScore);
-        const reasoning = reasoningMatch ? reasoningMatch[1] : 'Partial verification completed (JSON parsing incomplete)';
-
-        logToFile(`Partial extraction: score=${trustScore}, level=${trustLevel}`);
-
-        return {
-          trust_score: trustScore,
-          trust_level: trustLevel as TrustLevel,
-          reasoning,
-          verification_details: [],
-          hallucinations_detected: [],
-          recommendations: 'Partial verification completed. Please review sources manually for complete verification.',
-          evidence_summary: this.buildEvidenceSummary(verifiedSources, [])
-        };
-      }
-    } catch (error) {
-      logToFile(`Partial extraction error: ${error}`);
-    }
-
-    return null;
-  }
-
-  /**
-   * Strategy 5: Heuristic analysis when JSON parsing completely fails
-   */
-  private heuristicAnalysis(
-    content: string,
-    verifiedSources: VerifiedSource[]
-  ): EnhancedTrustScoreResult {
-    logToFile('Running heuristic analysis on response content');
-
-    const contentLower = content.toLowerCase();
-
-    // Look for positive indicators
-    const positiveIndicators = [
-      'verified', 'confirmed', 'accurate', 'correct', 'found in source',
-      'matches', 'consistent', 'present in', 'located in'
-    ];
-
-    // Look for negative indicators
-    const negativeIndicators = [
-      'not found', 'missing', 'absent', 'incorrect', 'fabricated',
-      'hallucination', 'discrepancy', 'contradiction', 'mismatch'
-    ];
-
-    let positiveCount = 0;
-    let negativeCount = 0;
-
-    for (const indicator of positiveIndicators) {
-      if (contentLower.includes(indicator)) {
-        positiveCount++;
-      }
-    }
-
-    for (const indicator of negativeIndicators) {
-      if (contentLower.includes(indicator)) {
-        negativeCount++;
-      }
-    }
-
-    // Calculate heuristic trust score
-    let trustScore = 50; // Start neutral
-
-    if (positiveCount > negativeCount) {
-      trustScore = Math.min(90, 50 + (positiveCount - negativeCount) * 10);
-    } else if (negativeCount > positiveCount) {
-      trustScore = Math.max(20, 50 - (negativeCount - positiveCount) * 10);
-    }
-
-    const verifiedCount = verifiedSources.filter(s => s.verification_status === 'verified').length;
-    if (verifiedCount === 0) {
-      trustScore = Math.min(trustScore, 40);
-    }
-
-    logToFile(`Heuristic analysis: positive=${positiveCount}, negative=${negativeCount}, score=${trustScore}`);
-
-    return {
-      trust_score: trustScore,
-      trust_level: this.determineTrustLevel(trustScore),
-      reasoning: `Automated heuristic analysis (JSON parsing failed). Positive indicators: ${positiveCount}, Negative indicators: ${negativeCount}. Manual review recommended.`,
-      verification_details: [],
-      hallucinations_detected: [],
-      recommendations: 'Verification system encountered parsing issues. Please manually verify the information with course materials or consult your professor.',
-      evidence_summary: `Heuristic analysis based on ${verifiedCount}/${verifiedSources.length} verified sources.`
-    };
-  }
-
-  /**
-   * Build trust score result from parsed JSON
-   */
-  private buildTrustScoreResult(
-    parsed: any,
-    verifiedSources: VerifiedSource[]
-  ): EnhancedTrustScoreResult {
-    const trustScore = typeof parsed.trust_score === 'number' ? parsed.trust_score : 50;
-    const trustLevel = parsed.trust_level || this.determineTrustLevel(trustScore);
-
-    return {
-      trust_score: trustScore,
-      trust_level: trustLevel as TrustLevel,
-      reasoning: parsed.reasoning || 'Verification completed',
-      verification_details: Array.isArray(parsed.verification_details) ? parsed.verification_details : [],
-      hallucinations_detected: Array.isArray(parsed.hallucinations_detected) ? parsed.hallucinations_detected : [],
-      recommendations: parsed.recommendations || 'Please review the sources and verification details.',
-      evidence_summary: this.buildEvidenceSummary(
-        verifiedSources,
-        parsed.hallucinations_detected || []
-      )
-    };
-  }
-
-  /**
-   * Build evidence summary string
-   */
-  private buildEvidenceSummary(
-    verifiedSources: VerifiedSource[],
-    hallucinations: string[]
-  ): string {
-    const verifiedCount = verifiedSources.filter(s => s.verification_status === 'verified').length;
-    const totalCount = verifiedSources.length;
-
-    return `Verified ${verifiedCount}/${totalCount} sources independently. ${hallucinations.length > 0
-      ? `⚠️ ${hallucinations.length} hallucination(s) detected.`
-      : '✓ No hallucinations detected.'
-      }`;
-  }
-
-  /**
    * Determine trust level from score
    */
   private determineTrustLevel(score: number): TrustLevel {
@@ -1167,8 +724,12 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
         trust_level,
         verification_reasoning,
         source_verification_details,
-        conflicts_detected
-      ) VALUES ($1, $2, $3, $4, $5, $6)
+        conflicts_detected,
+        validation_score,
+        validation_min_sentence_score,
+        verifiers_disagree,
+        low_validation_warning
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (message_id)
       DO UPDATE SET
         trust_score = EXCLUDED.trust_score,
@@ -1176,6 +737,10 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
         verification_reasoning = EXCLUDED.verification_reasoning,
         source_verification_details = EXCLUDED.source_verification_details,
         conflicts_detected = EXCLUDED.conflicts_detected,
+        validation_score = EXCLUDED.validation_score,
+        validation_min_sentence_score = EXCLUDED.validation_min_sentence_score,
+        verifiers_disagree = EXCLUDED.verifiers_disagree,
+        low_validation_warning = EXCLUDED.low_validation_warning,
         verification_timestamp = CURRENT_TIMESTAMP
     `;
 
@@ -1188,7 +753,11 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
         verification_details: verification.verification_details,
         evidence_summary: verification.evidence_summary
       }),
-      verification.hallucinations_detected
+      verification.hallucinations_detected,
+      verification.validation_score ?? null,
+      verification.validation_min_sentence_score ?? null,
+      verification.verifiers_disagree ?? false,
+      verification.low_validation_warning ?? false
     ]);
   }
 
@@ -1340,6 +909,10 @@ export interface EnhancedTrustScoreResult {
   hallucinations_detected: string[];
   recommendations: string;
   evidence_summary: string;
+  validation_score?: number;
+  validation_min_sentence_score?: number;
+  verifiers_disagree?: boolean;
+  low_validation_warning?: boolean;
 }
 
 export interface VerificationDetail {
