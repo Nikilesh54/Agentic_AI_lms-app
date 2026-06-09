@@ -61,10 +61,14 @@ export class AIServiceFactory {
    * Get default configuration from environment
    */
   private static getDefaultConfig(): AIServiceConfig {
+    const provider = (process.env.AI_PROVIDER as any) || 'gemini';
+    const apiKey = process.env.AI_API_KEY || (provider === 'groq' ? process.env.GROQ_API_KEY : process.env.GOOGLE_AI_API_KEY);
+    const model = process.env.AI_MODEL || (provider === 'groq' ? (process.env.GROQ_MODEL || 'llama-3.1-8b-instant') : (process.env.GEMINI_MODEL || 'gemini-2.5-flash'));
+
     return {
-      provider: (process.env.AI_PROVIDER as any) || 'gemini',
-      apiKey: process.env.GOOGLE_AI_API_KEY || process.env.AI_API_KEY,
-      model: process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.5-flash',
+      provider,
+      apiKey,
+      model,
       temperature: parseFloat(process.env.AI_TEMPERATURE || '0.7'),
       maxTokens: parseInt(process.env.AI_MAX_TOKENS || '2048'),
       streamingEnabled: process.env.AI_STREAMING_ENABLED === 'true',
