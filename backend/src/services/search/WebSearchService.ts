@@ -164,23 +164,36 @@ export class WebSearchService {
   /**
    * Determine if course materials are insufficient
    */
-  static shouldSearchWeb(courseMaterials: any[], query: string): boolean {
-    // No course materials found
+  /**
+   * Minimum best-chunk cosine relevance for the course materials to be treated
+   * as sufficient. If at least one retrieved chunk clears this, the course
+   * materials are the primary source and no web search is performed.
+   */
+  static readonly WEB_FALLBACK_SIMILARITY_FLOOR = 0.5;
+
+  /**
+   * Decide whether to supplement the answer with a web search.
+   *
+   * Course materials are the PRIMARY source. The web is only used when the course
+   * retrieval is empty or weak — i.e. no retrieved chunk clears the relevance
+   * floor. (Previously this used a crude keyword-substring check that tripped the
+   * web fallback far too eagerly.)
+   */
+  static shouldSearchWeb(courseMaterials: any[], _query: string): boolean {
+    // Nothing retrieved from the course → allow web fallback.
     if (!courseMaterials || courseMaterials.length === 0) {
       return true;
     }
 
-    // All materials have very low relevance scores
-    const hasRelevantMaterial = courseMaterials.some((material: any) => {
-      if (!material.content_text) return false;
+    // If any retrieved chunk is sufficiently relevant, the course materials are
+    // the primary source and a web search is not needed.
+    const bestSimilarity = courseMaterials.reduce(
+      (max: number, m: any) =>
+        Math.max(max, typeof m.similarity_score === 'number' ? m.similarity_score : 0),
+      0
+    );
 
-      const keywords = query.toLowerCase().split(' ').filter(w => w.length > 3);
-      const searchText = material.content_text.toLowerCase();
-
-      return keywords.some(keyword => searchText.includes(keyword));
-    });
-
-    return !hasRelevantMaterial;
+    return bestSimilarity < WebSearchService.WEB_FALLBACK_SIMILARITY_FLOOR;
   }
 
   /**

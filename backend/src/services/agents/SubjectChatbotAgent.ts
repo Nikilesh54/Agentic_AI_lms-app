@@ -129,6 +129,74 @@ Would you like me to help you understand what skills and certifications can help
   }
 
   /**
+   * Assemble the user turn that is actually sent to the model.
+   *
+   * Course materials are the PRIMARY, authoritative source and are injected
+   * directly into the prompt. Web results (when present) are appended as clearly
+   * labeled SECONDARY context, to be used only to fill gaps the course materials
+   * don't cover. If nothing was retrieved, the plain question is returned and the
+   * system prompt's general-knowledge fallback applies.
+   */
+  private buildGroundedQuestion(
+    question: string,
+    materials: CourseMaterial[],
+    webResults: any[]
+  ): string {
+    const hasMaterials = Array.isArray(materials) && materials.length > 0;
+    const hasWeb = Array.isArray(webResults) && webResults.length > 0;
+
+    if (!hasMaterials && !hasWeb) {
+      return question;
+    }
+
+    const parts: string[] = [];
+
+    if (hasMaterials) {
+      // Inject only the top-N most relevant chunks (already sorted best-first by the
+      // vector search), each truncated, to stay within the model's token budget.
+      const top = materials.slice(0, AGENT_CONFIG.CHATBOT_PROMPT_MAX_CHUNKS);
+      const block = top
+        .map((m, i) => {
+          const page = m.page_number ? `, Page ${m.page_number}` : '';
+          const sim = typeof m.similarity_score === 'number'
+            ? ` (relevance ${m.similarity_score.toFixed(2)})`
+            : '';
+          let excerpt = (m.content_text || '').trim();
+          if (excerpt.length > AGENT_CONFIG.CHATBOT_PROMPT_MAX_CHARS_PER_CHUNK) {
+            excerpt = excerpt.slice(0, AGENT_CONFIG.CHATBOT_PROMPT_MAX_CHARS_PER_CHUNK) + '…';
+          }
+          return `[${i + 1}] ${m.file_name}${page}${sim}\n${excerpt}`;
+        })
+        .join('\n\n');
+
+      parts.push(
+        `===== COURSE MATERIALS (PRIMARY SOURCE) =====\n${block}\n===== END COURSE MATERIALS =====`
+      );
+    }
+
+    if (hasWeb) {
+      parts.push(
+        `===== SECONDARY SOURCES (WEB — use ONLY to fill gaps the course materials don't cover) =====\n` +
+        `${WebSearchService.formatResultsForAI(webResults)}\n===== END SECONDARY SOURCES =====`
+      );
+    }
+
+    const rules = hasMaterials
+      ? `INSTRUCTIONS:
+- Answer the student's question using the COURSE MATERIALS above as the PRIMARY and authoritative source.
+- Cite each fact taken from them as [Source: {file_name}, Page {page}] using the names shown above.
+- Only if the course materials do NOT contain the answer, say so explicitly, then you may use the SECONDARY sources or your general knowledge — and label those clearly as "[Source: General knowledge]" or the web URL.
+- Do NOT invent file names or attribute information to course materials that is not in the excerpts above.`
+      : `INSTRUCTIONS:
+- The course materials do not cover this question. Tell the student that, then answer using the SECONDARY sources / your general knowledge, clearly labeled "[Source: General knowledge]" or the web URL.`;
+
+    parts.push(rules);
+    parts.push(`STUDENT QUESTION: ${question}`);
+
+    return parts.join('\n\n');
+  }
+
+  /**
    * Process a student question and generate response with sources
    */
   async execute(message: AgentMessage, context: AIContext): Promise<AgentResponse> {
@@ -173,6 +241,15 @@ Would you like me to help you understand what skills and certifications can help
         webSearchResults: webSearchResults.length > 0 ? webSearchResults : undefined
       };
 
+      // Build the grounded user turn. Course materials are injected as the PRIMARY
+      // source and web results (if any) as labeled SECONDARY context. Previously the
+      // retrieved chunks were never sent to the model, so answers were ungrounded.
+      const groundedQuestion = this.buildGroundedQuestion(
+        message.content,
+        relevantMaterials,
+        webSearchResults
+      );
+
       // Build conversation history
       const messages: AIMessage[] = [
         {
@@ -182,27 +259,9 @@ Would you like me to help you understand what skills and certifications can help
         ...context.conversationHistory,
         {
           role: 'user',
-          content: message.content
+          content: groundedQuestion
         }
       ];
-
-      // Add instruction when course materials are insufficient
-      if (webSearchResults.length > 0) {
-        const generalKnowledgeInstruction = `\n\n**IMPORTANT INSTRUCTION**:
-Since course materials don't have sufficient information on this topic, you are PERMITTED and ENCOURAGED to use your general knowledge to answer this question.
-
-YOU SHOULD:
-1. Clearly state that you don't have course materials on this specific topic
-2. Provide helpful information using your general knowledge
-3. Cite your sources as "[Source: General industry knowledge]"
-4. Be helpful and informative while being transparent about the source
-
-DO NOT say you cannot answer the question. DO NOT refuse to help. You HAVE PERMISSION to use your general knowledge when course materials are insufficient.
-
-Please provide a comprehensive, helpful answer.`;
-
-        messages[messages.length - 1].content = `${message.content}${generalKnowledgeInstruction}`;
-      }
 
       // Generate AI response
       const aiService = getAIService();

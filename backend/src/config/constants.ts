@@ -41,8 +41,14 @@ export const DOCUMENT_PROCESSING = {
 // AGENT CONFIGURATION
 // =====================================================
 export const AGENT_CONFIG = {
-  /** Number of materials to search for chatbot context */
+  /** Number of materials to search for chatbot context (recall for ranking + fallback) */
   CHATBOT_SEARCH_LIMIT: 30,
+
+  /** Max retrieved chunks actually injected into the chatbot prompt (token budget) */
+  CHATBOT_PROMPT_MAX_CHUNKS: 6,
+
+  /** Max characters per chunk excerpt injected into the prompt */
+  CHATBOT_PROMPT_MAX_CHARS_PER_CHUNK: 600,
 
   /** Maximum content length for verification (characters) */
   VERIFICATION_MAX_CONTENT_LENGTH: 20000, // Increased from 15000
