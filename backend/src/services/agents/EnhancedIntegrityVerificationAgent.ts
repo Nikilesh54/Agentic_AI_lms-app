@@ -582,11 +582,13 @@ Sources to Verify:
 `;
 
     verifiedSources.forEach((vs, index) => {
-      // Truncate actual content to relevant portions around key search terms
-      const relevantContent = this.extractRelevantContent(
+      // Send the source content contiguously, capped only by the fetch-time budget.
+      // The old keyword-windowing sliced sources into disjoint 1500-char snippets and
+      // routinely dropped the passages that supported the claims, producing false-negative
+      // (even 0) trust scores on documents that clearly contained the answer.
+      const relevantContent = this.smartTruncate(
         vs.actual_content ?? '',
-        chatbotResponse,
-        1500 // Max chars per source
+        AGENT_CONFIG.VERIFICATION_MAX_CONTENT_LENGTH
       );
 
       context += `
@@ -632,71 +634,6 @@ Task: Verify each claim against source content. Respond with ONLY the JSON objec
     }
 
     return keyClaims.join('. ') + '.';
-  }
-
-  /**
-   * Extract most relevant portions of content based on search terms
-   */
-  private extractRelevantContent(
-    content: string,
-    query: string,
-    maxLength: number
-  ): string {
-    if (!content || content.length === 0) {
-      return '';
-    }
-
-    // Extract numbers and key terms from query
-    const numbers = query.match(/\d+%?/g) || [];
-    const keyTerms = query
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(w => w.length > 4 && !['about', 'according', 'based'].includes(w))
-      .slice(0, 5);
-
-    const searchTerms = [...numbers, ...keyTerms];
-
-    if (searchTerms.length === 0) {
-      return this.smartTruncate(content, maxLength);
-    }
-
-    // Find positions of search terms
-    const positions: number[] = [];
-    const contentLower = content.toLowerCase();
-
-    for (const term of searchTerms) {
-      let pos = contentLower.indexOf(term.toLowerCase());
-      while (pos !== -1) {
-        positions.push(pos);
-        pos = contentLower.indexOf(term.toLowerCase(), pos + 1);
-      }
-    }
-
-    if (positions.length === 0) {
-      return this.smartTruncate(content, maxLength);
-    }
-
-    // Sort positions and extract context around matches
-    positions.sort((a, b) => a - b);
-    const chunks: string[] = [];
-    let totalLength = 0;
-
-    for (const pos of positions) {
-      if (totalLength >= maxLength) break;
-
-      // Extract context (200 chars before and after)
-      const start = Math.max(0, pos - 200);
-      const end = Math.min(content.length, pos + 200);
-      const chunk = content.substring(start, end);
-
-      // Avoid duplicates
-      if (!chunks.some(c => c.includes(chunk.substring(10, 30)))) {
-        chunks.push((start > 0 ? '...' : '') + chunk + (end < content.length ? '...' : ''));
-        totalLength += chunk.length;
-      }
-    }
-
-    return chunks.join(' ');
   }
 
   /**

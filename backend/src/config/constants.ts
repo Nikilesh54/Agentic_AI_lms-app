@@ -268,6 +268,12 @@ export const FACT_CHECK_CONFIG = {
 
   /** Maximum conversation history entries to include */
   MAX_HISTORY_ENTRIES: 6,
+
+  /** Max chars of source content per document fed to the fact-checker.
+   * Was effectively 800 (double-truncated), which only ever showed the head of a
+   * document (e.g. slide-master boilerplate) and produced false "inaccurate" verdicts.
+   * ponytail: still head-truncation; for docs larger than this, fetch the cited chunks instead. */
+  MAX_SOURCE_CHARS: 12000,
 } as const;
 
 // =====================================================

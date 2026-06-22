@@ -14,6 +14,7 @@ import { EnhancedIntegrityVerificationAgent } from '../services/agents/EnhancedI
 import { AgentMessage } from '../services/agents/newAgentTypes';
 import { AIContext, AIMessage } from '../services/ai/types';
 import { getGroqFactCheckService } from '../services/factcheck/GroqFactCheckService';
+import { FACT_CHECK_CONFIG } from '../config/constants';
 import { logUsage } from '../utils/usageLogger';
 import fs from 'fs';
 import path from 'path';
@@ -584,7 +585,7 @@ router.post(
               );
               sourceContent = sourceResult.rows.map(row => ({
                 fileName: row.file_name,
-                content: row.content_text.substring(0, 1000) // Limit per source to stay within token limits
+                content: row.content_text.substring(0, FACT_CHECK_CONFIG.MAX_SOURCE_CHARS)
               }));
             } catch (srcErr: any) {
               logToFile(`⚠️ Could not fetch source content for fact-check: ${srcErr.message}`);

@@ -51,6 +51,7 @@ CRITICAL RULES:
 5. Skip opinion-based or subjective statements.
 6. Be fair but rigorous. Educational accuracy matters.
 7. If the response cites sources, verify that the claims match what the provided source content contains.
+8. CRITICAL: "inaccurate" means the claim is factually WRONG (contradicted by the source or by established knowledge). A claim that is simply NOT FOUND in the provided source snippet is "unverifiable", NOT "inaccurate" — the snippet may be truncated or incomplete. Before marking a cited claim inaccurate, check it against your own knowledge; if it is factually correct, mark it "accurate". Only "inaccurate" claims should lower the accuracy score; "unverifiable" claims must not be penalized.
 
 For each factual claim you identify:
 - State the claim clearly
@@ -225,9 +226,10 @@ Scoring guide:
     // Build source documents section if available
     let sourceSection = '';
     if (sourceContent && sourceContent.length > 0) {
+      const cap = FACT_CHECK_CONFIG.MAX_SOURCE_CHARS;
       const sourceTexts = sourceContent
         .slice(0, 5) // Limit to top 5 sources to stay within token limits
-        .map((src, i) => `[Source ${i + 1}: ${src.fileName}]\n${src.content.substring(0, 800)}${src.content.length > 800 ? '...' : ''}`)
+        .map((src, i) => `[Source ${i + 1}: ${src.fileName}]\n${src.content.substring(0, cap)}${src.content.length > cap ? '...' : ''}`)
         .join('\n\n');
 
       sourceSection = `\nSOURCE DOCUMENTS (actual content from course materials — use these to verify claims):\n${sourceTexts}\n`;
